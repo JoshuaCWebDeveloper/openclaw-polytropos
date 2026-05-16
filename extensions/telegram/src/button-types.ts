@@ -4,28 +4,44 @@ import {
   type InteractiveReply,
   type InteractiveReplyButton,
 } from "openclaw/plugin-sdk/interactive-runtime";
+import { sanitizeTelegramCallbackData } from "./approval-callback-data.js";
 
 export type TelegramButtonStyle = "danger" | "success" | "primary";
 
-export type TelegramInlineButton = {
+type TelegramInlineButton = {
   text: string;
-  callback_data: string;
+  callback_data?: string;
+  url?: string;
   style?: TelegramButtonStyle;
 };
 
 export type TelegramInlineButtons = ReadonlyArray<ReadonlyArray<TelegramInlineButton>>;
 
 const TELEGRAM_INTERACTIVE_ROW_SIZE = 3;
-const MAX_CALLBACK_DATA_BYTES = 64;
-
-function fitsTelegramCallbackData(value: string): boolean {
-  return Buffer.byteLength(value, "utf8") <= MAX_CALLBACK_DATA_BYTES;
-}
 
 function toTelegramButtonStyle(
   style?: InteractiveReplyButton["style"],
 ): TelegramInlineButton["style"] {
   return style === "danger" || style === "success" || style === "primary" ? style : undefined;
+}
+
+function toTelegramInlineButton(button: InteractiveReplyButton): TelegramInlineButton | undefined {
+  const style = toTelegramButtonStyle(button.style);
+  if (button.url) {
+    return {
+      text: button.label,
+      url: button.url,
+      style,
+    };
+  }
+  const callbackData = button.value ? sanitizeTelegramCallbackData(button.value) : undefined;
+  return callbackData
+    ? {
+        text: button.label,
+        callback_data: callbackData,
+        style,
+      }
+    : undefined;
 }
 
 function chunkInteractiveButtons(
@@ -35,12 +51,8 @@ function chunkInteractiveButtons(
   for (let i = 0; i < buttons.length; i += TELEGRAM_INTERACTIVE_ROW_SIZE) {
     const row = buttons
       .slice(i, i + TELEGRAM_INTERACTIVE_ROW_SIZE)
-      .filter((button) => fitsTelegramCallbackData(button.value))
-      .map((button) => ({
-        text: button.label,
-        callback_data: button.value,
-        style: toTelegramButtonStyle(button.style),
-      }));
+      .map(toTelegramInlineButton)
+      .filter((button): button is TelegramInlineButton => Boolean(button));
     if (row.length > 0) {
       rows.push(row);
     }

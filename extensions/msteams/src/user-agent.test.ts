@@ -11,7 +11,27 @@ vi.mock("./runtime.js", () => ({
 
 import { fetchGraphJson } from "./graph.js";
 import { getMSTeamsRuntime } from "./runtime.js";
-import { buildUserAgent, resetUserAgentCache } from "./user-agent.js";
+import { buildUserAgent, ensureUserAgentHeader, resetUserAgentCache } from "./user-agent.js";
+
+function readFirstFetchInit(mockFetch: { mock: { calls: unknown[][] } }): {
+  headers: Record<string, string>;
+} {
+  const [call] = mockFetch.mock.calls;
+  if (!call) {
+    throw new Error("Expected Graph fetch call");
+  }
+  const [, init] = call;
+  if (
+    !init ||
+    typeof init !== "object" ||
+    !("headers" in init) ||
+    typeof init.headers !== "object" ||
+    init.headers === null
+  ) {
+    throw new Error("Expected Graph fetch init headers");
+  }
+  return init as { headers: Record<string, string> };
+}
 
 describe("buildUserAgent", () => {
   beforeEach(() => {
@@ -20,6 +40,7 @@ describe("buildUserAgent", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -54,7 +75,7 @@ describe("buildUserAgent", () => {
     await fetchGraphJson({ token: "test-token", path: "/groups" });
 
     expect(mockFetch).toHaveBeenCalledOnce();
-    const [, init] = mockFetch.mock.calls[0];
+    const init = readFirstFetchInit(mockFetch);
     expect(init.headers["User-Agent"]).toMatch(/^teams\.ts\[apps\]\/.+ OpenClaw\/2026\.3\.19$/);
     expect(init.headers).toHaveProperty("Authorization", "Bearer test-token");
   });
@@ -72,7 +93,15 @@ describe("buildUserAgent", () => {
       headers: { "User-Agent": "custom-agent/1.0" },
     });
 
-    const [, init] = mockFetch.mock.calls[0];
+    const init = readFirstFetchInit(mockFetch);
     expect(init.headers["User-Agent"]).toBe("custom-agent/1.0");
+  });
+
+  it("adds the generated User-Agent to Headers instances without overwriting callers", () => {
+    const generated = ensureUserAgentHeader();
+    expect(generated.get("User-Agent")).toMatch(/^teams\.ts\[apps\]\/.+ OpenClaw\/2026\.3\.19$/);
+
+    const custom = ensureUserAgentHeader({ "User-Agent": "custom-agent/2.0" });
+    expect(custom.get("User-Agent")).toBe("custom-agent/2.0");
   });
 });
