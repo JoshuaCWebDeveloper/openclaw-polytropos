@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import path from "node:path";
+import { createMockServerResponse } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createMockServerResponse } from "../../../test/helpers/plugins/mock-http-response.js";
 import { createDiffsHttpHandler } from "./http.js";
 import { DiffArtifactStore } from "./store.js";
 import { createDiffStoreHarness } from "./test-helpers.js";
@@ -141,9 +141,12 @@ describe("DiffArtifactStore", () => {
     vi.setSystemTime(new Date(now.getTime() + 2_000));
     await store.cleanupExpired();
 
-    await expect(fs.stat(path.dirname(standalone.filePath))).rejects.toMatchObject({
-      code: "ENOENT",
-    });
+    const error = await fs.stat(path.dirname(standalone.filePath)).then(
+      () => undefined,
+      (statError: unknown) => statError,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect((error as NodeJS.ErrnoException).code).toBe("ENOENT");
   });
 
   it("supports image path aliases for backward compatibility", async () => {
@@ -336,6 +339,14 @@ describe("createDiffsHttpHandler", () => {
     {
       name: "blocks trusted-proxy loopback requests without client-origin headers by default",
       request: localReq,
+      trustedProxies: ["127.0.0.1"],
+      allowRemoteViewer: false,
+      expectedStatusCode: 404,
+    },
+    {
+      name: "blocks proxied loopback requests when trusted proxies are configured",
+      request: localReq,
+      headers: { "x-forwarded-for": "203.0.113.10" },
       trustedProxies: ["127.0.0.1"],
       allowRemoteViewer: false,
       expectedStatusCode: 404,

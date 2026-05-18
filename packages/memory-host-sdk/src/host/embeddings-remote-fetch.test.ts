@@ -1,18 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fetchRemoteEmbeddingVectors } from "./embeddings-remote-fetch.js";
 
 const postJsonMock = vi.hoisted(() => vi.fn());
 
-type EmbeddingsRemoteFetchModule = typeof import("./embeddings-remote-fetch.js");
+vi.mock("./post-json.js", () => ({
+  postJson: postJsonMock,
+}));
 
-let fetchRemoteEmbeddingVectors: EmbeddingsRemoteFetchModule["fetchRemoteEmbeddingVectors"];
+function requirePostJsonParams(): {
+  url?: unknown;
+  headers?: unknown;
+  body?: unknown;
+  errorPrefix?: unknown;
+} {
+  const [call] = postJsonMock.mock.calls;
+  if (!call) {
+    throw new Error("expected postJson call");
+  }
+  const [params] = call;
+  if (typeof params !== "object" || params === null || Array.isArray(params)) {
+    throw new Error("expected postJson params to be an object");
+  }
+  return params;
+}
 
 describe("fetchRemoteEmbeddingVectors", () => {
-  beforeEach(async () => {
-    vi.resetModules();
-    vi.doMock("./post-json.js", () => ({
-      postJson: postJsonMock,
-    }));
-    ({ fetchRemoteEmbeddingVectors } = await import("./embeddings-remote-fetch.js"));
+  beforeEach(() => {
     postJsonMock.mockReset();
   });
 
@@ -31,14 +44,11 @@ describe("fetchRemoteEmbeddingVectors", () => {
     });
 
     expect(vectors).toEqual([[0.1, 0.2], [], [0.3]]);
-    expect(postJsonMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: "https://memory.example/v1/embeddings",
-        headers: { Authorization: "Bearer test" },
-        body: { input: ["one", "two", "three"] },
-        errorPrefix: "embedding fetch failed",
-      }),
-    );
+    const postJsonParams = requirePostJsonParams();
+    expect(postJsonParams.url).toBe("https://memory.example/v1/embeddings");
+    expect(postJsonParams.headers).toEqual({ Authorization: "Bearer test" });
+    expect(postJsonParams.body).toEqual({ input: ["one", "two", "three"] });
+    expect(postJsonParams.errorPrefix).toBe("embedding fetch failed");
   });
 
   it("throws a status-rich error on non-ok responses", async () => {

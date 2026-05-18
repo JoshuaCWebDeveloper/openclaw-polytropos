@@ -9,6 +9,7 @@ import {
   parseExecArgvToken,
   resolveCommandResolution,
   resolveCommandResolutionFromArgv,
+  resolveAllowlistCandidatePath,
   resolveExecutionTargetCandidatePath,
   resolvePolicyTargetCandidatePath,
 } from "./exec-approvals.js";
@@ -214,7 +215,7 @@ describe("exec-command-resolution", () => {
     fs.chmodSync(busybox, 0o755);
 
     const shellResolution = resolveCommandResolutionFromArgv(["sh", "-lc", "echo hi"]);
-    expect(shellResolution?.execution.resolvedPath).toBeTruthy();
+    expect(shellResolution?.execution.resolvedPath).toMatch(/sh$/);
 
     const wrappedResolution = resolveCommandResolutionFromArgv([busybox, "sh", "-lc", "echo hi"]);
     const evalResult = evaluateExecAllowlist({
@@ -428,5 +429,30 @@ describe("exec-command-resolution", () => {
       expect(long.flag).toBe("--output");
       expect(long.inlineValue).toBe("blocked.txt");
     }
+  });
+
+  it("does not synthesize cwd-joined allowlist candidates from drive-less windows roots", () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    expect(
+      resolveAllowlistCandidatePath(
+        {
+          rawExecutable: String.raw`:\Users\demo\AI\system\openclaw`,
+          executableName: "openclaw",
+        },
+        String.raw`C:\Users\demo\AI\system\openclaw`,
+      ),
+    ).toBeUndefined();
+    expect(
+      resolveAllowlistCandidatePath(
+        {
+          rawExecutable: String.raw`:/Users/demo/AI/system/openclaw`,
+          executableName: "openclaw",
+        },
+        String.raw`C:\Users\demo\AI\system\openclaw`,
+      ),
+    ).toBeUndefined();
   });
 });

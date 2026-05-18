@@ -38,7 +38,7 @@ function resolveHome() {
 }
 
 function defaultLogPath() {
-  const logsDir = path.join(resolveHome(), ".openclaw", "logs");
+  const logsDir = path.join(resolveHome(), ".openclaw", "logs", "polytropos-release");
   return path.join(logsDir, `polytropos-release-${timestampForFilename()}.log`);
 }
 
@@ -48,6 +48,7 @@ function parseArgs(argv) {
   const args = argv.slice(2);
   const cmd = args[0] || "";
   let logPath = process.env.POLYTROPOS_RELEASE_LOG || defaultLogPath();
+  let tgzPath = null;
   for (let i = 1; i < args.length; i++) {
     const a = args[i];
     if (a === "--log") {
@@ -59,12 +60,21 @@ function parseArgs(argv) {
       i++;
       continue;
     }
+    if (a === "--tgz") {
+      const v = args[i + 1];
+      if (!v) {
+        fail("--tgz requires a path");
+      }
+      tgzPath = v;
+      i++;
+      continue;
+    }
     if (a === "--help" || a === "-h") {
-      return { cmd: "--help", logPath };
+      return { cmd: "--help", logPath, tgzPath };
     }
     fail(`unknown argument: ${a}`);
   }
-  return { cmd, logPath };
+  return { cmd, logPath, tgzPath };
 }
 
 function teeWriteStream(logStream, chunk) {
@@ -275,33 +285,70 @@ function lnSfn(target, linkPath) {
   fs.symlinkSync(target, linkPath);
 }
 
+
+function assertSymlink(p, what) {
+  try {
+    const st = fs.lstatSync(p);
+    if (!st.isSymbolicLink()) {
+      fail(`${what} must be a symlink at ${p}`);
+    }
+  } catch (e) {
+    // ok if missing
+  }
+}
+
+function tgzInternalVersion(tgzPath) {
+  const raw = execFileSync("tar", ["-xOzf", tgzPath, "package/package.json"], { encoding: "utf8" });
+  const obj = JSON.parse(raw);
+  return { name: obj?.name, version: obj?.version };
+}
+
+function assertReleaseStoreConsistent(relRoot) {
+  const entries = fs.readdirSync(relRoot, { withFileTypes: true });
+  for (const e of entries) {
+    if (!e.isFile()) continue;
+    if (!e.name.startsWith("v") || !e.name.endsWith(".tgz")) continue;
+    const m = e.name.match(/^v([^+]+)(?:\+poly\.\d+)?\.tgz$/);
+    if (!m) continue;
+    const expected = m[1];
+    const full = path.join(relRoot, e.name);
+    const info = tgzInternalVersion(full);
+    if (info.name !== "openclaw") {
+      fail(`release store corruption: ${e.name} package name ${info.name}`);
+    }
+    if (info.version !== expected) {
+      fail(`release store corruption: ${e.name} contains version ${info.version} (expected ${expected})`);
+    }
+  }
+}
+
 function usage() {
   console.log(`polytropos-release.mjs
 
 Usage:
-  node scripts/polytropos-release.mjs release [--log <path>]
+  node scripts/polytropos-release.mjs release --tgz <path> [--log <path>]
 
 Behavior:
   - Requires clean git working tree
   - Uses the nearest reachable release tag (v<ver> or v<ver>+poly.<N>) to derive the base upstream version (v<ver>)
   - Computes next global poly build number N = max(existing poly) + 1
   - Creates tag v<ver>+poly.<N> at HEAD
-  - Builds using: pnpm install; pnpm ui:build; pnpm build
-  - Produces tarball via npm pack: ~/polytropos/releases/v<ver>+poly.<N>.tgz
+  - Requires --tgz: promotes a CI-built tarball (GitHub Actions) instead of building locally
+  - Stages tarball into: ~/polytropos/releases/v<ver>+poly.<N>.tgz
   - Updates ~/polytropos/releases/previous.tgz -> old current.tgz (if present)
   - Updates ~/polytropos/releases/current.tgz -> new tarball
   - Installs current.tgz globally into /home/ec2-user/.npm-global
-  - Does not restart/activate the gateway (run: systemctl --user restart openclaw-gateway)
+  - Does not restart/activate the gateway (restart procedure depends on your environment)
 `);
 }
 
-const { cmd, logPath } = parseArgs(process.argv);
+const { cmd, logPath, tgzPath } = parseArgs(process.argv);
 if (!cmd || cmd === "--help") {
   usage();
   process.exit(0);
 }
 
-if (cmd !== "release") {
+if (cmd != "release") {
   fail(`unknown command: ${cmd}`);
 }
 
@@ -310,6 +357,10 @@ const logStream = fs.createWriteStream(logPath, { flags: "a" });
 banner(logStream, `Log file: ${logPath}`);
 
 ensureCleanWorkingTree();
+const currentBranch = sh("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
+if (currentBranch !== "main") {
+  fail(`refusing to release from branch ${currentBranch}; releases must be cut from main`);
+}
 const repoRoot = getRepoRoot();
 const nearestReleaseTag = getNearestReachableReleaseTag();
 const { baseUpstreamTag } = parseReleaseTag(nearestReleaseTag);
@@ -326,28 +377,49 @@ banner(logStream, `Next release tag: ${polyTag}`);
 banner(logStream, `git tag -a ${polyTag}`);
 await shTee(logStream, "git", ["tag", "-a", polyTag, "-m", `Polytropos release ${polyTag}`]);
 
-// Build dist/
-banner(logStream, "Building dist/");
-ensureHooksDisabled(repoRoot, logStream, "before pnpm install");
-await shTee(logStream, "pnpm", ["install"], { cwd: repoRoot });
-// `pnpm install` runs the repo `prepare` script, which sets core.hooksPath to `git-hooks`.
-// Re-disable hooks explicitly so the release flow never leaves hooks enabled on the host.
-ensureHooksDisabled(repoRoot, logStream, "after pnpm install (prepare may reset core.hooksPath)");
-await shTee(logStream, "pnpm", ["ui:build"], { cwd: repoRoot });
-await shTee(logStream, "pnpm", ["build"], { cwd: repoRoot });
-
-ensureDistExists(repoRoot);
+if (!tgzPath) {
+  fail("release requires --tgz <path to CI-built tarball>; local builds on the gateway host are disabled");
+}
 
 // Produce tarball into releases
 const relRoot = releasesRoot();
 fs.mkdirSync(relRoot, { recursive: true });
+assertReleaseStoreConsistent(relRoot);
+
 const tarName = `${polyTag}.tgz`;
-const tarPath = npmPack(repoRoot, relRoot, tarName);
-banner(logStream, `Packed tarball: ${tarPath}`);
+let tarPath;
+if (!tgzPath) {
+  tarPath = npmPack(repoRoot, relRoot, tarName);
+  banner(logStream, `Packed tarball: ${tarPath}`);
+} else {
+  const srcAbs = path.resolve(tgzPath);
+  if (!fs.existsSync(srcAbs)) {
+    fail(`release: tgz not found at ${srcAbs}`);
+  }
+  banner(logStream, `Promoting tarball from: ${srcAbs}`);
+  // Validate tarball matches the derived upstream version
+  const pkgJsonRaw = execFileSync("tar", ["-xOzf", srcAbs, "package/package.json"], { encoding: "utf8" });
+  const pkg = JSON.parse(pkgJsonRaw);
+  const expectedVersion = baseUpstreamTag.replace(/^v/, "");
+  if (pkg?.name !== "openclaw") {
+    fail(`release: expected package name openclaw, got ${pkg?.name}`);
+  }
+  if (pkg?.version !== expectedVersion) {
+    fail(`release: tarball version ${pkg?.version} != expected ${expectedVersion}`);
+  }
+  tarPath = path.join(relRoot, tarName);
+  if (fs.existsSync(tarPath)) {
+    fail(`refusing to overwrite existing tarball: ${tarPath}`);
+  }
+  fs.copyFileSync(srcAbs, tarPath);
+  banner(logStream, `Promoted tarball: ${tarPath}`);
+}
 
 // Update symlinks: previous.tgz then current.tgz (mandatory)
 const currentTgz = path.join(relRoot, "current.tgz");
+assertSymlink(currentTgz, "current.tgz");
 const previousTgz = path.join(relRoot, "previous.tgz");
+assertSymlink(previousTgz, "previous.tgz");
 const currentTarget = readlinkAbs(currentTgz);
 if (currentTarget) {
   banner(logStream, `Setting previous.tgz -> ${currentTarget}`);
@@ -387,7 +459,7 @@ banner(logStream, "Running Polytropos bundled plugin deps helper...");
 
 banner(
   logStream,
-  "Activation required: restart gateway to run the new code (systemctl --user restart openclaw-gateway)",
+  "Activation required: restart the gateway to run the new code",
 );
 
 banner(logStream, "Release staged (not activated).");
@@ -395,6 +467,6 @@ banner(logStream, `- Tag: ${polyTag}`);
 banner(logStream, `- Tarball: ${tarPath}`);
 banner(logStream, `- current.tgz -> ${readlinkAbs(currentTgz)}`);
 banner(logStream, `- previous.tgz -> ${readlinkAbs(previousTgz)}`);
-banner(logStream, "- Next: systemctl --user restart openclaw-gateway");
+banner(logStream, "- Next: restart the gateway");
 
 logStream.end();

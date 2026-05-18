@@ -9,6 +9,18 @@ vi.mock("./secure-random.js", () => ({
   generateSecureFraction: randomMocks.generateSecureFraction,
 }));
 
+function firstMockArg(mock: { mock: { calls: readonly unknown[][] } }): Record<string, unknown> {
+  const [call] = mock.mock.calls;
+  if (!call) {
+    throw new Error("expected mock call");
+  }
+  const [arg] = call;
+  if (typeof arg !== "object" || arg === null || Array.isArray(arg)) {
+    throw new Error("expected mock call argument to be an object");
+  }
+  return arg as Record<string, unknown>;
+}
+
 type NumberRetryCase = {
   name: string;
   fn: ReturnType<typeof vi.fn>;
@@ -152,14 +164,25 @@ describe("retryAsync", () => {
       vi.useRealTimers();
     }
     expect(res).toBe("ok");
-    expect(onRetry).toHaveBeenCalledWith(
-      expect.objectContaining({
-        attempt: 1,
-        maxAttempts: 2,
-        err,
-        label: "telegram",
+    expect(onRetry).toHaveBeenCalledOnce();
+    const retryEvent = firstMockArg(onRetry);
+    expect(retryEvent.attempt).toBe(1);
+    expect(retryEvent.maxAttempts).toBe(2);
+    expect(retryEvent.err).toBe(err);
+    expect(retryEvent.label).toBe("telegram");
+  });
+
+  it("retries immediately when the resolved delay is zero", async () => {
+    const fn = vi.fn().mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce("ok");
+    await expect(
+      retryAsync(fn, {
+        attempts: 2,
+        minDelayMs: 0,
+        maxDelayMs: 0,
+        jitter: 0,
       }),
-    );
+    ).resolves.toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 
   it("clamps attempts to at least 1", async () => {
