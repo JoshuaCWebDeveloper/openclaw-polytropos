@@ -235,3 +235,10 @@ extensions/**/.openclaw-runtime-deps-stamp.json
 /.crabbox-artifacts
 .comux*
 scripts/generated/
+dist-runtime
+.tsbuildinfo
+.tgz
+Swabble/build/
+docs/superpowers/plans/2026-03-10-collapsed-side-nav.md
+docs/superpowers/specs/2026-03-10-collapsed-side-nav-design.md
+extensions/

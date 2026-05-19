@@ -16,6 +16,26 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+
+async function shRetry(logStream, label, fn, { tries = 5, baseDelayMs = 1000 } = {}) {
+  let lastErr = null;
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (e) {
+      lastErr = e;
+      const msg = String(e && e.message ? e.message : e);
+      // Retry only for known transient install races
+      const transient = msg.includes("ETXTBSY") || msg.includes("ENOTEMPTY") || msg.includes("EEXIST");
+      if (!transient || attempt == tries) throw e;
+      const delay = Math.min(8000, baseDelayMs * attempt);
+      banner(logStream, `${label} failed (attempt ${attempt}/${tries}) with transient error; retrying in ${delay}ms`);
+      await sleepMs(delay);
+    }
+  }
+  throw lastErr;
+}
+
 function sh(cmd, args, opts = {}) {
   return execFileSync(cmd, args, {
     encoding: "utf8",
@@ -141,6 +161,48 @@ async function shTee(logStream, cmd, args, opts = {}) {
       );
     });
   });
+}
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function findRunIdForTag({ logStream, ghRepo, wf, releaseTag, timeoutMs = 180000 }) {
+  const started = Date.now();
+  let attempt = 0;
+  while (Date.now() - started < timeoutMs) {
+    attempt++;
+    let runId = "";
+    try {
+      runId = sh("gh", [
+        "run",
+        "list",
+        "--repo",
+        ghRepo,
+        "--workflow",
+        wf,
+        "--event",
+        "push",
+                "--limit",
+        "20",
+        "--json",
+        "databaseId,headBranch",
+        "--jq",
+        // Only accept the tag push run (headBranch==releaseTag); otherwise return empty and retry
+        `.[] | select(.headBranch=="${releaseTag}") | .databaseId`,
+      ]);
+    } catch (e) {
+      // ignore and retry
+    }
+    if (runId) {
+      banner(logStream, `Found run id: ${runId}`);
+      return runId;
+    }
+    const delay = Math.min(5000, 500 + attempt * 250);
+    banner(logStream, `Run not visible yet (attempt ${attempt}); retrying in ${delay}ms`);
+    await sleepMs(delay);
+  }
+  fail(`could not find workflow run for tag ${releaseTag} within ${timeoutMs}ms`);
 }
 
 function banner(logStream, s) {
@@ -286,29 +348,13 @@ try {
 banner(logStream, `Pushing tag: ${releaseTag}`);
 await shTee(logStream, "git", ["push", "origin", releaseTag]);
 
-// Locate workflow run for tag push
-banner(logStream, "Locating workflow run for tag...");
-const runId = sh("gh", [
-  "run",
-  "list",
-  "--repo",
-  ghRepo,
-  "--workflow",
-  wf,
-  "--event",
-  "push",
-  "--branch",
-  releaseTag,
-  "--limit",
-  "1",
-  "--json",
-  "databaseId",
-  "--jq",
-  ".[0].databaseId",
-]);
-if (!runId) {
-  fail(`could not find workflow run for tag ${releaseTag}`);
-}
+// Dispatch workflow explicitly for this tag (avoids tag-push trigger flakes)
+banner(logStream, "Dispatching workflow...");
+await shTee(logStream, "gh", ["api", "-X", "POST", `/repos/${ghRepo}/actions/workflows/${wf}/dispatches`, "-f", `ref=${releaseTag}`]);
+
+// Locate the workflow run (eventual consistency: retry)
+banner(logStream, "Locating workflow run...");
+const runId = await findRunIdForTag({ logStream, ghRepo, wf, releaseTag });
 
 banner(logStream, `Watching run: ${runId}`);
 await shTee(logStream, "gh", ["run", "watch", runId, "--repo", ghRepo, "--exit-status"]);
@@ -364,9 +410,20 @@ const tgzPath = tgzs[0];
 
 const tarPath = path.join(relRoot, `${releaseTag}.tgz`);
 if (fs.existsSync(tarPath)) {
-  fail(`refusing to overwrite existing tarball: ${tarPath}`);
+  banner(logStream, `Tarball already staged: ${tarPath}`);
+  // Validate existing tarball matches expected version
+  const info = tgzInternalVersion(tarPath);
+  const expectedVersion = releaseTag.replace(/^v/, "").replace(/\+poly\.\d+$/, "");
+  if (info.name !== "openclaw") {
+    fail(`unexpected package name in existing tgz: ${info.name}`);
+  }
+  if (info.version !== expectedVersion) {
+    fail(`existing tgz version ${info.version} != expected ${expectedVersion} (from ${releaseTag})`);
+  }
+} else {
+  fs.copyFileSync(tgzPath, tarPath);
+  banner(logStream, `Staged tarball: ${tarPath}`);
 }
-fs.copyFileSync(tgzPath, tarPath);
 
 banner(logStream, `Staged tarball: ${tarPath}`);
 
@@ -390,7 +447,20 @@ lnSfn(tarPath, currentTgz);
 // Install globally
 const prefix = getGlobalPrefix();
 banner(logStream, `Installing globally into prefix: ${prefix}`);
-await shTee(logStream, "npm", ["install", "-g", "--prefix", prefix, currentTgz]);
+// Safety: move aside any existing global install dir to avoid partial/dirty trees after crashes
+  {
+    const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
+    const installedRoot = path.join(npmRoot, "openclaw");
+    if (fs.existsSync(installedRoot)) {
+      const bak = `${installedRoot}.bak-${timestampForFilename()}`;
+      banner(logStream, `Moving aside existing global install: ${installedRoot} -> ${bak}`);
+      fs.renameSync(installedRoot, bak);
+    }
+  }
+
+await shRetry(logStream, "npm install -g", async () => {
+  await shTee(logStream, "npm", ["install", "-g", "--prefix", prefix, currentTgz]);
+});
 
 // Run bundled deps helper
 banner(logStream, "Running Polytropos bundled plugin deps helper...");
@@ -401,7 +471,10 @@ banner(logStream, "Running Polytropos bundled plugin deps helper...");
   if (!fs.existsSync(helperPath)) {
     fail(`Polytropos helper not found at ${helperPath}`);
   }
-  await shTee(logStream, "node", [helperPath]);
+  await shRetry(logStream, "bundled deps helper", async () => {
+    await shTee(logStream, "node", [helperPath]);
+  });
+  banner(logStream, "Bundled plugin deps helper completed.");
 }
 
 banner(logStream, "Activation required: restart the gateway to run the new code");
