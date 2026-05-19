@@ -3,8 +3,6 @@ name: Polytropos Build + Pack
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
     tags:
       - "v*poly.*"
 permissions:
@@ -45,7 +43,7 @@ jobs:
         env:
           PNPM_CONFIG_MINIMUM_RELEASE_AGE: "0"
           PNPM_CONFIG_MINIMUM_RELEASE_AGE_IGNORE_MISSING_TIME: "true"
-        run: pnpm install --frozen-lockfile --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm build
@@ -76,7 +74,7 @@ jobs:
         run: |
           node -e "const fs=require(\"fs\"); const pkg=require(\"./package.json\"); fs.writeFileSync(\"build-metadata.json\", JSON.stringify({name:pkg.name, version:pkg.version, sha:process.env.GITHUB_SHA, node:process.version, node_options:process.env.NODE_OPTIONS, pnpm:process.env.PNPM_VERSION, releaseTag: process.env.RELEASE_TAG || null}, null, 2));"
       - name: Upload package artifact
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.ref_type == 'tag'
         uses: actions/upload-artifact@v4
         with:
           name: openclaw-tgz-${{ env.RELEASE_TAG }}
@@ -85,7 +83,7 @@ jobs:
           retention-days: 14
 
       - name: Upload dist/ (debug)
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.ref_type == 'tag'
         uses: actions/upload-artifact@v4
         with:
           name: openclaw-dist-${{ env.RELEASE_TAG }}
