@@ -94,6 +94,8 @@ overrides:
   uuid: 14.0.0
 
 allowBuilds:
+  openclaw: true
+  baileys: true
   "@openclaw/fs-safe": true
   "@google/genai": true
   "@lydell/node-pty": true
@@ -110,6 +112,8 @@ allowBuilds:
   "@openclaw/proxyline": true
   clawpdf: true
   rastermill: true
+  baileys: set this to true or false
+  openclaw: set this to true or false
 
 packageExtensions:
   baileys:
