@@ -112,8 +112,6 @@ allowBuilds:
   "@openclaw/proxyline": true
   clawpdf: true
   rastermill: true
-  baileys: true
-  openclaw: true
 
 packageExtensions:
   baileys:
