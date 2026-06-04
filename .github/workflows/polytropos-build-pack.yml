@@ -44,9 +44,15 @@ jobs:
         env:
           PNPM_CONFIG_MINIMUM_RELEASE_AGE: "0"
           PNPM_CONFIG_MINIMUM_RELEASE_AGE_IGNORE_MISSING_TIME: "true"
+          PNPM_HOME: /home/runner/.local/share/pnpm
+          PNPM_STORE_DIR: /home/runner/.local/share/pnpm/store-debug
         run: |
           set -euo pipefail
           LOG=$(mktemp)
+          echo "Node: $(node -v)"
+          echo "pnpm: $(pnpm -v)"
+          echo "PNPM_STORE_DIR=$PNPM_STORE_DIR"
+          pnpm config get store-dir || true
           echo "Starting pnpm install at $(date -u +%FT%TZ)"
           stdbuf -oL -eL pnpm install --frozen-lockfile --reporter ndjson > >(tee "$LOG") 2>&1 &
           PNPM_PID=$!
@@ -85,6 +91,10 @@ jobs:
                   cat "/proc/$PNPM_PID/status" || true
                   cat "/proc/$PNPM_PID/wchan" || true
                   lsof -p "$PNPM_PID" || true
+                  echo "--- fdinfo ---"
+                  for f in /proc/$PNPM_PID/fdinfo/*; do echo "## $f"; cat "$f" || true; done || true
+                  echo "--- maps ---"
+                  cat "/proc/$PNPM_PID/maps" | tail -n 120 || true
                   pgrep -af 'pnpm|node|git|tsx|tsgo|sharp|esbuild' || true
                   kill -TERM "$PNPM_PID" || true
                   sleep 5
