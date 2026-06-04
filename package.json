@@ -1296,7 +1296,10 @@
     "tsdown": "0.21.7",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.2",
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/cross-spawn": "^6.0.6",
+    "@types/hosted-git-info": "^3.0.5"
   },
   "peerDependencies": {
     "@napi-rs/canvas": "^0.1.89",
