@@ -1123,8 +1123,8 @@
     "moltbot:rpc": "node scripts/run-node.mjs agent --mode rpc --json",
     "openclaw": "node scripts/run-node.mjs",
     "openclaw:rpc": "node scripts/run-node.mjs agent --mode rpc --json",
-    "plugin-sdk:api:check": "node --import tsx scripts/generate-plugin-sdk-api-baseline.ts --check",
-    "plugin-sdk:api:gen": "node --import tsx scripts/generate-plugin-sdk-api-baseline.ts --write",
+    "plugin-sdk:api:check": "node --max-old-space-size=8192 --import tsx scripts/generate-plugin-sdk-api-baseline.ts --check",
+    "plugin-sdk:api:gen": "node --max-old-space-size=8192 --import tsx scripts/generate-plugin-sdk-api-baseline.ts --write",
     "plugin-sdk:check-exports": "node scripts/sync-plugin-sdk-exports.mjs --check",
     "plugin-sdk:facades:check": "node scripts/generate-plugin-sdk-facades.mjs --check",
     "plugin-sdk:facades:gen": "node scripts/generate-plugin-sdk-facades.mjs --write",
@@ -1217,7 +1217,9 @@
     "ui:dev": "node scripts/ui.js dev",
     "ui:install": "node scripts/ui.js install",
     "plugins:assets:build": "node scripts/bundled-plugin-assets.mjs --phase build",
-    "plugins:assets:copy": "node scripts/bundled-plugin-assets.mjs --phase copy"
+    "plugins:assets:copy": "node scripts/bundled-plugin-assets.mjs --phase copy",
+    "plugin-sdk:surface": "node --max-old-space-size=8192 scripts/plugin-sdk-surface-report.mjs",
+    "plugin-sdk:surface:check": "node --max-old-space-size=8192 scripts/plugin-sdk-surface-report.mjs --check"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.21.0",
