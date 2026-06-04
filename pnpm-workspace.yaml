@@ -35,7 +35,6 @@ nodeLinker: hoisted
 resolutionMode: highest
 blockExoticSubdeps: false
 allowBuilds:
-  openclaw: true
   "@google/genai": true
   "@matrix-org/matrix-sdk-crypto-nodejs": true
   "@tloncorp/tlon-skill": true
@@ -43,7 +42,6 @@ allowBuilds:
   esbuild: true
   koffi: true
   node-llama-cpp: true
-  openclaw: true
   protobufjs: true
   sharp: true
   tree-sitter-bash: true
