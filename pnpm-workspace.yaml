@@ -94,14 +94,12 @@ overrides:
   uuid: 14.0.0
 
 allowBuilds:
-  sharp: true
   "@openclaw/fs-safe": true
   "@google/genai": true
   "@lydell/node-pty": true
   "@matrix-org/matrix-sdk-crypto-nodejs": true
   "@tloncorp/api": true
   "@tloncorp/tlon-skill": true
-  baileys: true
   authenticate-pam: true
   "@discordjs/opus": false
   esbuild: true
@@ -109,11 +107,9 @@ allowBuilds:
   node-llama-cpp: true
   protobufjs: true
   tree-sitter-bash: false
-  openclaw: true
   "@openclaw/proxyline": true
   clawpdf: true
   rastermill: true
-  sharp: set this to true or false
 
 packageExtensions:
   baileys:
