@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           LOG=$(mktemp)
           echo "Starting pnpm install at $(date -u +%FT%TZ)"
-          stdbuf -oL -eL pnpm install --frozen-lockfile --reporter append-only > >(tee "$LOG") 2>&1 &
+          stdbuf -oL -eL pnpm install --frozen-lockfile --reporter ndjson > >(tee "$LOG") 2>&1 &
           PNPM_PID=$!
           DONE_SEEN=0
           DONE_TS=0
@@ -66,6 +66,10 @@ jobs:
             pstree -ap "$PNPM_PID" || true
             echo "--- children ---"
             for f in /proc/$PNPM_PID/task/*/children; do echo "$f: $(cat "$f" 2>/dev/null || true)"; done || true
+            echo "--- /proc status ---"
+            cat "/proc/$PNPM_PID/status" || true
+            echo "--- /proc wchan ---"
+            cat "/proc/$PNPM_PID/wchan" || true
             echo "--- lsof ---"
             lsof -p "$PNPM_PID" || true
             echo "--- tracked processes ---"
@@ -78,6 +82,8 @@ jobs:
                   ps -eo pid,ppid,pgid,stat,etime,%cpu,%mem,command --forest || true
                   pstree -ap "$PNPM_PID" || true
                   for f in /proc/$PNPM_PID/task/*/children; do echo "$f: $(cat "$f" 2>/dev/null || true)"; done || true
+                  cat "/proc/$PNPM_PID/status" || true
+                  cat "/proc/$PNPM_PID/wchan" || true
                   lsof -p "$PNPM_PID" || true
                   pgrep -af 'pnpm|node|git|tsx|tsgo|sharp|esbuild' || true
                   kill -TERM "$PNPM_PID" || true
