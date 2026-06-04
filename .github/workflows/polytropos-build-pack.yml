@@ -1,0 +1,97 @@
+name: Polytropos Build + Pack
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "release/*"
+    tags:
+      - "v*poly.*"
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  NODE_OPTIONS: "--max-old-space-size=6144"
+  OPENCLAW_TSDOWN_NODE_OPTIONS: "--max-old-space-size=6144"
+  NODE_VERSION: "24.15.0"
+  PNPM_VERSION: "11.0.8"
+
+jobs:
+  build_pack:
+    if: startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          pnpm-version: ${{ env.PNPM_VERSION }}
+          install-bun: "false"
+
+      - name: Runner resources
+        run: |
+          echo "MemTotal:"; grep MemTotal /proc/meminfo || true
+          echo "SwapTotal:"; grep SwapTotal /proc/meminfo || true
+          free -h || true
+
+      - name: Install
+        env:
+          PNPM_CONFIG_MINIMUM_RELEASE_AGE: "0"
+          PNPM_CONFIG_MINIMUM_RELEASE_AGE_IGNORE_MISSING_TIME: "true"
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Build Control UI
+        run: pnpm ui:build
+      - name: Compute artifact tag
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          else
+            echo "RELEASE_TAG=" >> "$GITHUB_ENV"
+          fi
+      - name: Pack
+        id: pack
+        run: |
+          set -euo pipefail
+          pkg=$(node -p "require('./package.json').name")
+          ver=$(node -p "require('./package.json').version")
+          # Build the tarball; do NOT trust stdout formatting
+          npm pack --silent > /tmp/npm-pack.out
+          tgz=$(ls -1 *.tgz | tail -n 1)
+          echo "package=$pkg" >> "$GITHUB_OUTPUT"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "tgz=$tgz" >> "$GITHUB_OUTPUT"
+          ls -la "$tgz"
+      - name: Write build metadata
+        run: |
+          node -e "const fs=require(\"fs\"); const pkg=require(\"./package.json\"); fs.writeFileSync(\"build-metadata.json\", JSON.stringify({name:pkg.name, version:pkg.version, sha:process.env.GITHUB_SHA, node:process.version, node_options:process.env.NODE_OPTIONS, pnpm:process.env.PNPM_VERSION, releaseTag: process.env.RELEASE_TAG || null}, null, 2));"
+      - name: Upload package artifact
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: openclaw-tgz-${{ env.RELEASE_TAG }}
+          path: ${{ steps.pack.outputs.tgz }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload dist/ (debug)
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: openclaw-dist-${{ env.RELEASE_TAG }}
+          path: |
+            dist
+            ui/dist
+          if-no-files-found: warn
+          retention-days: 7
