@@ -45,17 +45,16 @@ jobs:
           PNPM_CONFIG_MINIMUM_RELEASE_AGE: "0"
           PNPM_CONFIG_MINIMUM_RELEASE_AGE_IGNORE_MISSING_TIME: "true"
         run: |
+          set -euo pipefail
           echo "Starting pnpm install at $(date -u +%FT%TZ)"
-          pnpm install --frozen-lockfile --reporter append-only
-          echo "pnpm returned at $(date -u +%FT%TZ)"
-          echo "Process snapshot after pnpm returns:"
-          ps -ef || true
-          echo "Node processes:"
-          pgrep -af node || true
-          echo "pnpm processes:"
-          pgrep -af pnpm || true
-          echo "git processes:"
-          pgrep -af git || true
+          pnpm install --frozen-lockfile --reporter append-only &
+          PNPM_PID=$!
+          while kill -0 "$PNPM_PID" 2>/dev/null; do
+            echo "[install-watchdog $(date -u +%FT%TZ)] pnpm still running"
+            ps -ef | grep -E "pnpm|node|git" | grep -v grep || true
+            sleep 15
+          done
+          wait "$PNPM_PID"
           echo "Finished pnpm install at $(date -u +%FT%TZ)"
 
       - name: Build
