@@ -46,7 +46,10 @@ jobs:
         env:
           PNPM_CONFIG_MINIMUM_RELEASE_AGE: "0"
           PNPM_CONFIG_MINIMUM_RELEASE_AGE_IGNORE_MISSING_TIME: "true"
-        run: pnpm install --frozen-lockfile
+        run: |
+          echo "Starting pnpm install at $(date -u +%FT%TZ)"
+          pnpm install --frozen-lockfile --reporter append-only
+          echo "Finished pnpm install at $(date -u +%FT%TZ)"
 
       - name: Build
         run: pnpm build
