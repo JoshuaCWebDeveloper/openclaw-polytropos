@@ -198,7 +198,7 @@ async function findRunIdForTag({ logStream, ghRepo, wf, releaseTag, timeoutMs = 
       banner(logStream, `Found run id: ${runId}`);
       return runId;
     }
-    const delay = Math.min(5000, 500 + attempt * 250);
+    const delay = Math.min(15000, 2000 + attempt * 1000);
     banner(logStream, `Run not visible yet (attempt ${attempt}); retrying in ${delay}ms`);
     await sleepMs(delay);
   }
