@@ -33,6 +33,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           pnpm-version: ${{ env.PNPM_VERSION }}
           install-bun: "false"
+          install-deps: "false"
 
       - name: Runner resources
         run: |
@@ -44,74 +45,16 @@ jobs:
         env:
           PNPM_CONFIG_MINIMUM_RELEASE_AGE: "0"
           PNPM_CONFIG_MINIMUM_RELEASE_AGE_IGNORE_MISSING_TIME: "true"
-          PNPM_HOME: /home/runner/.local/share/pnpm
-          PNPM_STORE_DIR: /home/runner/.local/share/pnpm/store-debug
+          PNPM_CONFIG_STORE_DIR: /home/runner/.local/share/pnpm/store-debug
         run: |
           set -euo pipefail
-          LOG=$(mktemp)
+          corepack enable
+          corepack prepare pnpm@11.0.8 --activate
           echo "Node: $(node -v)"
           echo "pnpm: $(pnpm -v)"
-          echo "PNPM_STORE_DIR=$PNPM_STORE_DIR"
+          echo "PNPM_CONFIG_STORE_DIR=$PNPM_CONFIG_STORE_DIR"
           pnpm config get store-dir || true
-          echo "Starting pnpm install at $(date -u +%FT%TZ)"
-          stdbuf -oL -eL pnpm install --frozen-lockfile --reporter ndjson > >(tee "$LOG") 2>&1 &
-          PNPM_PID=$!
-          DONE_SEEN=0
-          DONE_TS=0
-          while kill -0 "$PNPM_PID" 2>/dev/null; do
-            NOW=$(date -u +%FT%TZ)
-            if [ "$DONE_SEEN" -eq 0 ] && grep -q 'Done in .* using pnpm' "$LOG"; then
-              DONE_SEEN=1
-              DONE_TS=$(date +%s)
-              echo "[install-watchdog $NOW] detected pnpm completion line but process still alive (pid=$PNPM_PID)"
-            fi
-            echo "[install-watchdog $NOW] pnpm still running (pid=$PNPM_PID)"
-            echo "--- ps --forest ---"
-            ps -eo pid,ppid,pgid,stat,etime,%cpu,%mem,command --forest || true
-            echo "--- pstree ---"
-            pstree -ap "$PNPM_PID" || true
-            echo "--- children ---"
-            for f in /proc/$PNPM_PID/task/*/children; do echo "$f: $(cat "$f" 2>/dev/null || true)"; done || true
-            echo "--- /proc status ---"
-            cat "/proc/$PNPM_PID/status" || true
-            echo "--- /proc wchan ---"
-            cat "/proc/$PNPM_PID/wchan" || true
-            echo "--- lsof ---"
-            lsof -p "$PNPM_PID" || true
-            echo "--- tracked processes ---"
-            pgrep -af 'pnpm|node|git|tsx|tsgo|sharp|esbuild' || true
-            if [ "$DONE_SEEN" -eq 1 ]; then
-              ELAPSED=$(( $(date +%s) - DONE_TS ))
-              if [ "$ELAPSED" -ge 60 ]; then
-                if kill -0 "$PNPM_PID" 2>/dev/null; then
-                  echo "[install-watchdog $NOW] pnpm printed completion >=60s ago and is still alive; capturing final diagnostics and terminating"
-                  ps -eo pid,ppid,pgid,stat,etime,%cpu,%mem,command --forest || true
-                  pstree -ap "$PNPM_PID" || true
-                  for f in /proc/$PNPM_PID/task/*/children; do echo "$f: $(cat "$f" 2>/dev/null || true)"; done || true
-                  cat "/proc/$PNPM_PID/status" || true
-                  cat "/proc/$PNPM_PID/wchan" || true
-                  lsof -p "$PNPM_PID" || true
-                  echo "--- fdinfo ---"
-                  for f in /proc/$PNPM_PID/fdinfo/*; do echo "## $f"; cat "$f" || true; done || true
-                  echo "--- maps ---"
-                  cat "/proc/$PNPM_PID/maps" | tail -n 120 || true
-                  pgrep -af 'pnpm|node|git|tsx|tsgo|sharp|esbuild' || true
-                  kill -TERM "$PNPM_PID" || true
-                  sleep 5
-                  if kill -0 "$PNPM_PID" 2>/dev/null; then
-                    kill -KILL "$PNPM_PID" || true
-                  fi
-                  echo "pnpm remained alive after completion line; failing install step"
-                  exit 1
-                else
-                  echo "[install-watchdog $NOW] pnpm exited during watchdog grace period after completion line"
-                fi
-              fi
-            fi
-            sleep 15
-          done
-          wait "$PNPM_PID"
-          echo "Finished pnpm install at $(date -u +%FT%TZ)"
+          pnpm install --frozen-lockfile --reporter append-only
 
       - name: Build
         run: pnpm build
