@@ -165,7 +165,7 @@ export class FileAuthStorageBackend implements AuthStorageBackend {
         stale: 30000,
         onCompromised: (err: unknown) => {
           lockCompromised = true;
-          lockCompromisedError = err;
+          lockCompromisedError = err instanceof Error ? err : new Error(String(err));
         },
       });
 
