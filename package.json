@@ -1215,7 +1215,9 @@
     "tui:dev": "OPENCLAW_PROFILE=dev node scripts/run-node.mjs --dev tui",
     "ui:build": "node scripts/ui.js build",
     "ui:dev": "node scripts/ui.js dev",
-    "ui:install": "node scripts/ui.js install"
+    "ui:install": "node scripts/ui.js install",
+    "plugins:assets:build": "node scripts/bundled-plugin-assets.mjs --phase build",
+    "plugins:assets:copy": "node scripts/bundled-plugin-assets.mjs --phase copy"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.21.0",
