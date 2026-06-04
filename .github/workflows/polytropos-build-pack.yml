@@ -46,12 +46,46 @@ jobs:
           PNPM_CONFIG_MINIMUM_RELEASE_AGE_IGNORE_MISSING_TIME: "true"
         run: |
           set -euo pipefail
+          LOG=$(mktemp)
           echo "Starting pnpm install at $(date -u +%FT%TZ)"
-          pnpm install --frozen-lockfile --reporter append-only &
+          stdbuf -oL -eL pnpm install --frozen-lockfile --reporter append-only > >(tee "$LOG") 2>&1 &
           PNPM_PID=$!
+          DONE_SEEN=0
+          DONE_TS=0
           while kill -0 "$PNPM_PID" 2>/dev/null; do
-            echo "[install-watchdog $(date -u +%FT%TZ)] pnpm still running"
-            ps -ef | grep -E "pnpm|node|git" | grep -v grep || true
+            NOW=$(date -u +%FT%TZ)
+            if [ "$DONE_SEEN" -eq 0 ] && grep -q 'Done in .* using pnpm' "$LOG"; then
+              DONE_SEEN=1
+              DONE_TS=$(date +%s)
+              echo "[install-watchdog $NOW] detected pnpm completion line but process still alive (pid=$PNPM_PID)"
+            fi
+            echo "[install-watchdog $NOW] pnpm still running (pid=$PNPM_PID)"
+            echo "--- ps --forest ---"
+            ps -eo pid,ppid,pgid,stat,etime,%cpu,%mem,command --forest || true
+            echo "--- pstree ---"
+            pstree -ap "$PNPM_PID" || true
+            echo "--- children ---"
+            for f in /proc/$PNPM_PID/task/*/children; do echo "$f: $(cat "$f" 2>/dev/null || true)"; done || true
+            echo "--- lsof ---"
+            lsof -p "$PNPM_PID" || true
+            echo "--- tracked processes ---"
+            pgrep -af 'pnpm|node|git|tsx|tsgo|sharp|esbuild' || true
+            if [ "$DONE_SEEN" -eq 1 ]; then
+              ELAPSED=$(( $(date +%s) - DONE_TS ))
+              if [ "$ELAPSED" -ge 60 ]; then
+                echo "[install-watchdog $NOW] pnpm printed completion >=60s ago but is still alive; capturing final diagnostics and terminating"
+                ps -eo pid,ppid,pgid,stat,etime,%cpu,%mem,command --forest || true
+                pstree -ap "$PNPM_PID" || true
+                for f in /proc/$PNPM_PID/task/*/children; do echo "$f: $(cat "$f" 2>/dev/null || true)"; done || true
+                lsof -p "$PNPM_PID" || true
+                pgrep -af 'pnpm|node|git|tsx|tsgo|sharp|esbuild' || true
+                kill -TERM "$PNPM_PID" || true
+                sleep 5
+                kill -KILL "$PNPM_PID" || true
+                echo "pnpm remained alive after completion line; failing install step"
+                exit 1
+              fi
+            fi
             sleep 15
           done
           wait "$PNPM_PID"
