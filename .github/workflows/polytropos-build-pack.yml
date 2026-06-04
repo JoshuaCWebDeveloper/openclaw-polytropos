@@ -73,17 +73,23 @@ jobs:
             if [ "$DONE_SEEN" -eq 1 ]; then
               ELAPSED=$(( $(date +%s) - DONE_TS ))
               if [ "$ELAPSED" -ge 60 ]; then
-                echo "[install-watchdog $NOW] pnpm printed completion >=60s ago but is still alive; capturing final diagnostics and terminating"
-                ps -eo pid,ppid,pgid,stat,etime,%cpu,%mem,command --forest || true
-                pstree -ap "$PNPM_PID" || true
-                for f in /proc/$PNPM_PID/task/*/children; do echo "$f: $(cat "$f" 2>/dev/null || true)"; done || true
-                lsof -p "$PNPM_PID" || true
-                pgrep -af 'pnpm|node|git|tsx|tsgo|sharp|esbuild' || true
-                kill -TERM "$PNPM_PID" || true
-                sleep 5
-                kill -KILL "$PNPM_PID" || true
-                echo "pnpm remained alive after completion line; failing install step"
-                exit 1
+                if kill -0 "$PNPM_PID" 2>/dev/null; then
+                  echo "[install-watchdog $NOW] pnpm printed completion >=60s ago and is still alive; capturing final diagnostics and terminating"
+                  ps -eo pid,ppid,pgid,stat,etime,%cpu,%mem,command --forest || true
+                  pstree -ap "$PNPM_PID" || true
+                  for f in /proc/$PNPM_PID/task/*/children; do echo "$f: $(cat "$f" 2>/dev/null || true)"; done || true
+                  lsof -p "$PNPM_PID" || true
+                  pgrep -af 'pnpm|node|git|tsx|tsgo|sharp|esbuild' || true
+                  kill -TERM "$PNPM_PID" || true
+                  sleep 5
+                  if kill -0 "$PNPM_PID" 2>/dev/null; then
+                    kill -KILL "$PNPM_PID" || true
+                  fi
+                  echo "pnpm remained alive after completion line; failing install step"
+                  exit 1
+                else
+                  echo "[install-watchdog $NOW] pnpm exited during watchdog grace period after completion line"
+                fi
               fi
             fi
             sleep 15
