@@ -109,8 +109,12 @@ export async function statusCommand(
         scanStatusJsonFast({ timeoutMs: opts.timeoutMs, all: opts.all }, runtime),
       )
     : await loadStatusScanModule().then(({ scanStatus }) =>
-        scanStatus({ json: false, timeoutMs: opts.timeoutMs, all: opts.all }, runtime),
+        scanStatus(
+          { json: false, timeoutMs: opts.timeoutMs, all: opts.all, deep: opts.deep },
+          runtime,
+        ),
       );
+  const includeSecurityAudit = opts.all === true || opts.deep === true;
   const runSecurityAudit = async () =>
     await loadSecurityAuditModule().then(({ runSecurityAudit }) =>
       runSecurityAudit({
@@ -121,16 +125,18 @@ export async function statusCommand(
         includeChannelSecurity: true,
       }),
     );
-  const securityAudit = opts.json
-    ? await runSecurityAudit()
-    : await withProgress(
-        {
-          label: "Running security audit…",
-          indeterminate: true,
-          enabled: true,
-        },
-        async () => await runSecurityAudit(),
-      );
+  const securityAudit = includeSecurityAudit
+    ? opts.json
+      ? await runSecurityAudit()
+      : await withProgress(
+          {
+            label: "Running security audit…",
+            indeterminate: true,
+            enabled: true,
+          },
+          async () => await runSecurityAudit(),
+        )
+    : undefined;
   const {
     cfg,
     osSummary,
@@ -236,7 +242,7 @@ export async function statusCommand(
       gatewayService: daemon,
       nodeService: nodeDaemon,
       agents: agentStatus,
-      securityAudit,
+      ...(securityAudit ? { securityAudit } : {}),
       secretDiagnostics,
       pluginCompatibility: {
         count: pluginCompatibility.length,
@@ -578,49 +584,58 @@ export async function statusCommand(
 
   runtime.log("");
   runtime.log(theme.heading("Security audit"));
-  const fmtSummary = (value: { critical: number; warn: number; info: number }) => {
-    const parts = [
-      theme.error(`${value.critical} critical`),
-      theme.warn(`${value.warn} warn`),
-      theme.muted(`${value.info} info`),
-    ];
-    return parts.join(" · ");
-  };
-  runtime.log(theme.muted(`Summary: ${fmtSummary(securityAudit.summary)}`));
-  const importantFindings = securityAudit.findings.filter(
-    (f) => f.severity === "critical" || f.severity === "warn",
-  );
-  if (importantFindings.length === 0) {
-    runtime.log(theme.muted("No critical or warn findings detected."));
-  } else {
-    const severityLabel = (sev: "critical" | "warn" | "info") => {
-      if (sev === "critical") {
-        return theme.error("CRITICAL");
-      }
-      if (sev === "warn") {
-        return theme.warn("WARN");
-      }
-      return theme.muted("INFO");
-    };
-    const sevRank = (sev: "critical" | "warn" | "info") =>
-      sev === "critical" ? 0 : sev === "warn" ? 1 : 2;
-    const sorted = [...importantFindings].toSorted(
-      (a, b) => sevRank(a.severity) - sevRank(b.severity),
+  if (!securityAudit) {
+    runtime.log(
+      theme.muted(
+        `Skipped in fast status. Full report: ${formatCliCommand("openclaw security audit")}`,
+      ),
     );
-    const shown = sorted.slice(0, 6);
-    for (const f of shown) {
-      runtime.log(`  ${severityLabel(f.severity)} ${f.title}`);
-      runtime.log(`    ${shortenText(f.detail.replaceAll("\n", " "), 160)}`);
-      if (f.remediation?.trim()) {
-        runtime.log(`    ${theme.muted(`Fix: ${f.remediation.trim()}`)}`);
+    runtime.log(theme.muted(`Deep probe: ${formatCliCommand("openclaw status --deep")}`));
+  } else {
+    const fmtSummary = (value: { critical: number; warn: number; info: number }) => {
+      const parts = [
+        theme.error(`${value.critical} critical`),
+        theme.warn(`${value.warn} warn`),
+        theme.muted(`${value.info} info`),
+      ];
+      return parts.join(" · ");
+    };
+    runtime.log(theme.muted(`Summary: ${fmtSummary(securityAudit.summary)}`));
+    const importantFindings = securityAudit.findings.filter(
+      (f) => f.severity === "critical" || f.severity === "warn",
+    );
+    if (importantFindings.length === 0) {
+      runtime.log(theme.muted("No critical or warn findings detected."));
+    } else {
+      const severityLabel = (sev: "critical" | "warn" | "info") => {
+        if (sev === "critical") {
+          return theme.error("CRITICAL");
+        }
+        if (sev === "warn") {
+          return theme.warn("WARN");
+        }
+        return theme.muted("INFO");
+      };
+      const sevRank = (sev: "critical" | "warn" | "info") =>
+        sev === "critical" ? 0 : sev === "warn" ? 1 : 2;
+      const sorted = [...importantFindings].toSorted(
+        (a, b) => sevRank(a.severity) - sevRank(b.severity),
+      );
+      const shown = sorted.slice(0, 6);
+      for (const f of shown) {
+        runtime.log(`  ${severityLabel(f.severity)} ${f.title}`);
+        runtime.log(`    ${shortenText(f.detail.replaceAll("\n", " "), 160)}`);
+        if (f.remediation?.trim()) {
+          runtime.log(`    ${theme.muted(`Fix: ${f.remediation.trim()}`)}`);
+        }
+      }
+      if (sorted.length > shown.length) {
+        runtime.log(theme.muted(`… +${sorted.length - shown.length} more`));
       }
     }
-    if (sorted.length > shown.length) {
-      runtime.log(theme.muted(`… +${sorted.length - shown.length} more`));
-    }
+    runtime.log(theme.muted(`Full report: ${formatCliCommand("openclaw security audit")}`));
+    runtime.log(theme.muted(`Deep probe: ${formatCliCommand("openclaw security audit --deep")}`));
   }
-  runtime.log(theme.muted(`Full report: ${formatCliCommand("openclaw security audit")}`));
-  runtime.log(theme.muted(`Deep probe: ${formatCliCommand("openclaw security audit --deep")}`));
 
   runtime.log("");
   runtime.log(theme.heading("Channels"));

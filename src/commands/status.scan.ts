@@ -1,5 +1,4 @@
 import { existsSync } from "node:fs";
-import { resolveMemorySearchConfig } from "../agents/memory-search.js";
 import { hasPotentialConfiguredChannels } from "../channels/config-presence.js";
 import { resolveCommandSecretRefsViaGateway } from "../cli/command-secret-gateway.js";
 import { getStatusCommandSecretTargetIds } from "../cli/command-secret-targets.js";
@@ -43,6 +42,7 @@ let statusAgentLocalModulePromise: Promise<typeof import("./status.agent-local.j
 let statusSummaryModulePromise: Promise<typeof import("./status.summary.js")> | undefined;
 let statusUpdateModulePromise: Promise<typeof import("./status.update.js")> | undefined;
 let gatewayCallModulePromise: Promise<typeof import("../gateway/call.js")> | undefined;
+let memorySearchModulePromise: Promise<typeof import("../agents/memory-search.js")> | undefined;
 
 const loadStatusScanRuntimeModule = createLazyRuntimeSurface(
   () => import("./status.scan.runtime.js"),
@@ -72,6 +72,11 @@ function loadStatusUpdateModule() {
 function loadGatewayCallModule() {
   gatewayCallModulePromise ??= import("../gateway/call.js");
   return gatewayCallModulePromise;
+}
+
+function loadMemorySearchModule() {
+  memorySearchModulePromise ??= import("../agents/memory-search.js");
+  return memorySearchModulePromise;
 }
 
 function deferResult<T>(promise: Promise<T>): Promise<DeferredResult<T>> {
@@ -146,6 +151,10 @@ async function resolveMemoryStatusSnapshot(params: {
   agentStatus: Awaited<ReturnType<typeof getAgentLocalStatusesFn>>;
   memoryPlugin: MemoryPluginStatus;
 }): Promise<MemoryStatusSnapshot | null> {
+  if (!params.memoryPlugin.enabled || !params.memoryPlugin.slot) {
+    return null;
+  }
+  const { resolveMemorySearchConfig } = await loadMemorySearchModule();
   const { getMemorySearchManager } = await loadStatusScanDepsRuntimeModule();
   return await resolveSharedMemoryStatusSnapshot({
     cfg: params.cfg,
@@ -219,6 +228,7 @@ export async function scanStatus(
     json?: boolean;
     timeoutMs?: number;
     all?: boolean;
+    deep?: boolean;
   },
   _runtime: RuntimeEnv,
 ): Promise<StatusScanResult> {
@@ -260,15 +270,16 @@ export async function scanStatus(
                 ),
               )
               .catch(() => null);
-      const updateTimeoutMs = opts.all ? 6500 : 2500;
+      const isFullScan = opts.all === true || opts.deep === true;
+      const updateTimeoutMs = isFullScan ? 6500 : 2500;
       const updatePromise = deferResult(
         skipColdStartNetworkChecks
           ? Promise.resolve(buildColdStartUpdateResult())
           : loadStatusUpdateModule().then(({ getUpdateCheckResult }) =>
               getUpdateCheckResult({
                 timeoutMs: updateTimeoutMs,
-                fetchGit: true,
-                includeRegistry: true,
+                fetchGit: isFullScan,
+                includeRegistry: isFullScan,
               }),
             ),
       );

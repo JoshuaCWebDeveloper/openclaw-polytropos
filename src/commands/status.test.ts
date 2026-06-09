@@ -622,8 +622,7 @@ describe("statusCommand", () => {
     expect(payload.sessions.recent[0].totalTokensFresh).toBe(true);
     expect(payload.sessions.recent[0].remainingTokens).toBe(5000);
     expect(payload.sessions.recent[0].flags).toContain("verbose:on");
-    expect(payload.securityAudit.summary.critical).toBe(1);
-    expect(payload.securityAudit.summary.warn).toBe(1);
+    expect(payload).not.toHaveProperty("securityAudit");
     expect(payload.gatewayService.label).toBe("LaunchAgent");
     expect(payload.nodeService.label).toBe("LaunchAgent");
     expect(payload.pluginCompatibility).toEqual({
@@ -637,6 +636,17 @@ describe("statusCommand", () => {
         byStatus: expect.objectContaining({ queued: 0, running: 0 }),
       }),
     );
+    expect(mocks.runSecurityAudit).not.toHaveBeenCalled();
+  });
+
+  it("includes JSON security audit details only when --all is requested", async () => {
+    mocks.hasPotentialConfiguredChannels.mockReturnValue(false);
+
+    await statusCommand({ json: true, all: true }, runtime as never);
+    const payload = JSON.parse(String(runtimeLogMock.mock.calls[0]?.[0]));
+
+    expect(payload.securityAudit.summary.critical).toBe(1);
+    expect(payload.securityAudit.summary.warn).toBe(1);
     expect(mocks.runSecurityAudit).toHaveBeenCalledWith(
       expect.objectContaining({
         includeFilesystem: true,
@@ -673,8 +683,7 @@ describe("statusCommand", () => {
       "OpenClaw status",
       "Overview",
       "Security audit",
-      "Summary:",
-      "CRITICAL",
+      "Skipped in fast status",
       "Dashboard",
       "macos 14.0 (arm64)",
       "Memory",

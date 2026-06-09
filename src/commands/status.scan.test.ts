@@ -91,6 +91,46 @@ describe("scanStatus", () => {
     );
   });
 
+  it("uses shallow update checks for default status output", async () => {
+    configureScanStatus({
+      sourceConfig: createStatusScanConfig({
+        plugins: { enabled: false },
+      }),
+      resolvedConfig: createStatusScanConfig({
+        plugins: { enabled: false },
+      }),
+    });
+
+    await scanStatus({ json: false }, {} as never);
+
+    expect(mocks.getUpdateCheckResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fetchGit: false,
+        includeRegistry: false,
+      }),
+    );
+  });
+
+  it("uses full update checks for deep status output", async () => {
+    configureScanStatus({
+      sourceConfig: createStatusScanConfig({
+        plugins: { enabled: false },
+      }),
+      resolvedConfig: createStatusScanConfig({
+        plugins: { enabled: false },
+      }),
+    });
+
+    await scanStatus({ json: false, deep: true }, {} as never);
+
+    expect(mocks.getUpdateCheckResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fetchGit: true,
+        includeRegistry: true,
+      }),
+    );
+  });
+
   it("skips channel plugin preload for status --json with no channel config", async () => {
     configureScanStatus({
       sourceConfig: createStatusScanConfig({

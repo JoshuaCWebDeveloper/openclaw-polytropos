@@ -140,9 +140,6 @@ export async function loadStatusScanModuleForTest(
     vi.doMock("../cli/command-secret-targets.js", () => ({
       getStatusCommandSecretTargetIds: mocks.getStatusCommandSecretTargetIds,
     }));
-    vi.doMock("../agents/memory-search.js", () => ({
-      resolveMemorySearchConfig: mocks.resolveMemorySearchConfig,
-    }));
   } else {
     vi.doMock("../cli/progress.js", () => ({
       withProgress: vi.fn(async (_opts, run) => await run({ setLabel: vi.fn(), tick: vi.fn() })),
@@ -187,6 +184,9 @@ export async function loadStatusScanModuleForTest(
     buildGatewayConnectionDetailsWithResolvers: mocks.buildGatewayConnectionDetails,
   }));
   vi.doMock("../process/exec.js", () => createStatusExecModuleMock());
+  vi.doMock("../agents/memory-search.js", () => ({
+    resolveMemorySearchConfig: mocks.resolveMemorySearchConfig,
+  }));
   vi.doMock("../cli/plugin-registry.js", () => createStatusPluginRegistryModuleMock(mocks));
   vi.doMock("../plugins/status.js", () => createStatusPluginStatusModuleMock(mocks));
 
