@@ -16,7 +16,6 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-
 async function shRetry(logStream, label, fn, { tries = 5, baseDelayMs = 1000 } = {}) {
   let lastErr = null;
   for (let attempt = 1; attempt <= tries; attempt++) {
@@ -26,10 +25,14 @@ async function shRetry(logStream, label, fn, { tries = 5, baseDelayMs = 1000 } =
       lastErr = e;
       const msg = String(e && e.message ? e.message : e);
       // Retry only for known transient install races
-      const transient = msg.includes("ETXTBSY") || msg.includes("ENOTEMPTY") || msg.includes("EEXIST");
+      const transient =
+        msg.includes("ETXTBSY") || msg.includes("ENOTEMPTY") || msg.includes("EEXIST");
       if (!transient || attempt == tries) throw e;
       const delay = Math.min(8000, baseDelayMs * attempt);
-      banner(logStream, `${label} failed (attempt ${attempt}/${tries}) with transient error; retrying in ${delay}ms`);
+      banner(
+        logStream,
+        `${label} failed (attempt ${attempt}/${tries}) with transient error; retrying in ${delay}ms`,
+      );
       await sleepMs(delay);
     }
   }
@@ -183,7 +186,7 @@ async function findRunIdForTag({ logStream, ghRepo, wf, releaseTag, timeoutMs = 
         wf,
         "--event",
         "push",
-                "--limit",
+        "--limit",
         "20",
         "--json",
         "databaseId,headBranch",
@@ -210,7 +213,6 @@ function banner(logStream, s) {
   process.stdout.write(line);
   teeWriteStream(logStream, line);
 }
-
 
 function inferGhRepoFromOrigin() {
   // Supports: git@github.com:owner/repo.git OR https://github.com/owner/repo.git
@@ -304,7 +306,7 @@ Behavior (single flow):
 `);
 }
 
-const { cmd, logPath, repo, workflow, releaseTag } = parseArgs(process.argv);
+const { cmd, logPath, repo, workflow, releaseTag: requestedTag } = parseArgs(process.argv);
 if (!cmd || cmd === "--help") {
   usage();
   process.exit(0);
@@ -314,9 +316,7 @@ if (cmd !== "release") {
   fail(`unknown command: ${cmd}`);
 }
 
-if (!releaseTag) {
-  releaseTag = computeNextReleaseTag();
-}
+const releaseTag = requestedTag ?? computeNextReleaseTag();
 if (!/^v[^+]+\+poly\.\d+$/.test(releaseTag)) {
   fail(`invalid --tag: ${releaseTag} (expected v<ver>+poly.<N>)`);
 }
@@ -332,8 +332,8 @@ banner(logStream, `GitHub repo: ${ghRepo}`);
 banner(logStream, `Workflow: ${wf}`);
 banner(logStream, `Release tag: ${releaseTag}`);
 
-  const releaseBranch = assertValidReleaseBranch();
-  banner(logStream, `Release branch: ${releaseBranch}`);
+const releaseBranch = assertValidReleaseBranch();
+banner(logStream, `Release branch: ${releaseBranch}`);
 
 // Ensure release store is consistent before we touch it
 const relRoot = releasesRoot();
@@ -345,7 +345,13 @@ try {
   sh("git", ["rev-parse", "--verify", `refs/tags/${releaseTag}`]);
 } catch {
   banner(logStream, `Creating tag locally: ${releaseTag}`);
-  await shTee(logStream, "git", ["tag", "-a", releaseTag, "-m", `Polytropos release ${releaseTag}`]);
+  await shTee(logStream, "git", [
+    "tag",
+    "-a",
+    releaseTag,
+    "-m",
+    `Polytropos release ${releaseTag}`,
+  ]);
 }
 
 banner(logStream, `Pushing tag: ${releaseTag}`);
@@ -418,7 +424,9 @@ if (fs.existsSync(tarPath)) {
     fail(`unexpected package name in existing tgz: ${info.name}`);
   }
   if (info.version !== expectedVersion) {
-    fail(`existing tgz version ${info.version} != expected ${expectedVersion} (from ${releaseTag})`);
+    fail(
+      `existing tgz version ${info.version} != expected ${expectedVersion} (from ${releaseTag})`,
+    );
   }
 } else {
   fs.copyFileSync(tgzPath, tarPath);
@@ -437,7 +445,10 @@ if (currentTarget) {
   banner(logStream, `Setting previous.tgz -> ${currentTarget}`);
   lnSfn(currentTarget, previousTgz);
 } else {
-  banner(logStream, "No existing current.tgz symlink; setting previous.tgz to this tarball as bootstrap");
+  banner(
+    logStream,
+    "No existing current.tgz symlink; setting previous.tgz to this tarball as bootstrap",
+  );
   lnSfn(tarPath, previousTgz);
 }
 
@@ -448,15 +459,15 @@ lnSfn(tarPath, currentTgz);
 const prefix = getGlobalPrefix();
 banner(logStream, `Installing globally into prefix: ${prefix}`);
 // Safety: move aside any existing global install dir to avoid partial/dirty trees after crashes
-  {
-    const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
-    const installedRoot = path.join(npmRoot, "openclaw");
-    if (fs.existsSync(installedRoot)) {
-      const bak = `${installedRoot}.bak-${timestampForFilename()}`;
-      banner(logStream, `Moving aside existing global install: ${installedRoot} -> ${bak}`);
-      fs.renameSync(installedRoot, bak);
-    }
+{
+  const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
+  const installedRoot = path.join(npmRoot, "openclaw");
+  if (fs.existsSync(installedRoot)) {
+    const bak = `${installedRoot}.bak-${timestampForFilename()}`;
+    banner(logStream, `Moving aside existing global install: ${installedRoot} -> ${bak}`);
+    fs.renameSync(installedRoot, bak);
   }
+}
 
 await shRetry(logStream, "npm install -g", async () => {
   await shTee(logStream, "npm", ["install", "-g", "--prefix", prefix, currentTgz]);
@@ -467,7 +478,11 @@ banner(logStream, "Running Polytropos bundled plugin deps helper...");
 {
   const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
   const installedRoot = path.join(npmRoot, "openclaw");
-  const helperPath = path.join(installedRoot, "scripts", "polytropos-bundled-plugin-deps-helper.mjs");
+  const helperPath = path.join(
+    installedRoot,
+    "scripts",
+    "polytropos-bundled-plugin-deps-helper.mjs",
+  );
   if (!fs.existsSync(helperPath)) {
     fail(`Polytropos helper not found at ${helperPath}`);
   }
@@ -479,16 +494,17 @@ banner(logStream, "Running Polytropos bundled plugin deps helper...");
 
 banner(logStream, "Activation required: restart the gateway to run the new code");
 banner(logStream, "Release staged (not activated).");
-logStream.end();function currentBranchName() {
+logStream.end();
+function currentBranchName() {
   return sh("git", ["branch", "--show-current"]);
 }
 
 function assertValidReleaseBranch() {
   const branch = currentBranchName();
   if (!/^release\/\d{4}\.\d{1,2}\.\d{1,2}$/.test(branch)) {
-    fail(`release script must run from a valid release branch (release/YYYY.M.D (matching the version/tag format)); current branch: ${branch}`);
+    fail(
+      `release script must run from a valid release branch (release/YYYY.M.D (matching the version/tag format)); current branch: ${branch}`,
+    );
   }
   return branch;
 }
-
-
