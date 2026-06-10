@@ -21,6 +21,7 @@ import { installProcessWarningFilter } from "./infra/warning-filter.js";
 const ENTRY_WRAPPER_PAIRS = [
   { wrapperBasename: "openclaw.mjs", entryBasename: "entry.js" },
   { wrapperBasename: "openclaw.js", entryBasename: "entry.js" },
+  { wrapperBasename: "polytropos.mjs", entryBasename: "entry.js" },
 ] as const;
 
 type PrecomputedCommandHelpName = "browser" | "secrets" | "nodes";
