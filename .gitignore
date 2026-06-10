@@ -258,3 +258,6 @@ extensions/diffs-language-pack/assets/viewer-runtime.js
 /.opengrep-out/
 /.crabbox-artifacts
 .comux*
+
+# Polytropos local generated and plugin output
+scripts/generated/
