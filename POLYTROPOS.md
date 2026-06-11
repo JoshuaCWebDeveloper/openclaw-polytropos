@@ -16,6 +16,16 @@ For Polytropos-specific documentation, treat **this file** as the canonical read
 - `README.md` is retained primarily as the upstream OpenClaw README (with a small Polytropos header).
 - Polytropos docs live under [`docs/polytropos/`](docs/polytropos/).
 
+## Working with the upstream OpenClaw Repo - DON'T
+
+DO NOT interact, make changes, participate in, or otherwise interfer with the upstream repo at https://github.com/openclaw/openclaw.
+
+This means:
+- NO opening PRs
+- NO creating issues
+- NO attempted commits/pushes/writes
+- NO commenting on any of the above
+
 ---
 
 ## Repos
@@ -27,7 +37,7 @@ For Polytropos-specific documentation, treat **this file** as the canonical read
 
 A development clone should define two remotes:
 - `origin` (pointing to this repo)
-- `upstream` (pointing to https://github.com/openclaw/openclaw)
+- `upstream` (pointing to https://github.com/openclaw/openclaw - STRICTLY read only, do not write to the upstream)
 
 ### Upstream refs
 - `upstream/main` — latest OpenClaw trunk; not guaranteed to correspond to a release.
