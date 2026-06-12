@@ -146,6 +146,7 @@ export function createPluginLoadResult(
     diagnostics: [],
     channels: [],
     channelSetups: [],
+    toolSchemaContributions: [],
     providers: [],
     embeddingProviders: embeddingProviders ?? [],
     speechProviders: [],
