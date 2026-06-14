@@ -823,6 +823,7 @@ describe("config help copy quality", () => {
 
     const pluginPromptPolicy = FIELD_HELP["plugins.entries.*.hooks.allowPromptInjection"];
     expect(pluginPromptPolicy.includes("before_prompt_build")).toBe(true);
+    expect(pluginPromptPolicy.includes("before_turn_developer_instructions")).toBe(true);
     expect(pluginPromptPolicy.includes("before_agent_start")).toBe(true);
     expect(pluginPromptPolicy.includes("modelOverride")).toBe(true);
 
@@ -837,6 +838,7 @@ describe("config help copy quality", () => {
 
     const pluginHookTimeouts = FIELD_HELP["plugins.entries.*.hooks.timeouts"];
     expect(pluginHookTimeouts.includes("before_prompt_build")).toBe(true);
+    expect(pluginHookTimeouts.includes("before_turn_developer_instructions")).toBe(true);
     expect(pluginHookTimeouts.includes("agent_end")).toBe(true);
     expect(pluginConversationPolicy.includes("agent_end")).toBe(true);
   });

@@ -1,7 +1,10 @@
 export type PluginEntryConfig = {
   enabled?: boolean;
   hooks?: {
-    /** Controls prompt mutation via before_prompt_build and prompt fields from legacy before_agent_start. */
+    /**
+     * Controls prompt mutation via before_prompt_build, before_turn_developer_instructions,
+     * and prompt fields from legacy before_agent_start.
+     */
     allowPromptInjection?: boolean;
     /**
      * Controls access to raw conversation content from conversation hooks including

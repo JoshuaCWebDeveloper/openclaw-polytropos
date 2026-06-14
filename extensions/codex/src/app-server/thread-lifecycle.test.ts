@@ -539,6 +539,22 @@ describe("Codex app-server turn input image sanitizing", () => {
     );
   });
 
+  it("uses explicit collaboration developer instructions when provided", () => {
+    const request = buildTurnStartParams(createAttemptParams({ provider: "openai" }), {
+      threadId: "thread-1",
+      cwd: "/repo",
+      appServer: createAppServerOptions() as never,
+      collaborationDeveloperInstructions: "hook-mutated turn instructions",
+      turnScopedDeveloperInstructions: "SOUL.md turn-only context",
+      memoryCollaborationInstructions: "MEMORY.md pointer",
+      skillsCollaborationInstructions: "<available_skills>",
+    });
+
+    expect(request.collaborationMode?.settings.developer_instructions).toBe(
+      "hook-mutated turn instructions",
+    );
+  });
+
   it("places memory collaboration instructions before skills", () => {
     const request = buildTurnStartParams(createAttemptParams({ provider: "openai" }), {
       threadId: "thread-1",
