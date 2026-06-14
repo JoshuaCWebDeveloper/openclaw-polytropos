@@ -56,21 +56,23 @@ Every new event/hook added to the fork must include a short entry with:
 
 ### Template
 
-```md
+````md
 ## hook:<area>:<event>
 
 **When:** <when it fires>
 
 **Payload:**
+
 - <field>: <meaning>
 
 Example:
+
 ```json
 { "field": "value" }
 ```
 
 **Introduced:** <commit>
-```
+````
 
 ## 3) Emission strategy (core)
 

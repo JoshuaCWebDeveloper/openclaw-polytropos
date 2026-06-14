@@ -849,6 +849,9 @@ function collectCurrentShrinkwrapOverrides(
   shrinkwrap,
   declaredDependencies = new Set(),
   pnpmLockPackages = readPnpmLockPackages(),
+  pnpmLockPackageVersions = collectPnpmLockPackageVersions(
+    parseYaml(readFileSync(path.join(ROOT_DIR, "pnpm-lock.yaml"), "utf8")),
+  ),
 ) {
   const packages = shrinkwrap?.packages;
   if (!packages || typeof packages !== "object") {
@@ -863,6 +866,7 @@ function collectCurrentShrinkwrapOverrides(
     if (
       !packageName ||
       declaredDependencies.has(packageName) ||
+      hasMultipleStableMajorVersions(pnpmLockPackageVersions.get(packageName)) ||
       !pnpmLockPackages.has(`${packageName}@${metadata.version}`)
     ) {
       continue;
@@ -912,6 +916,21 @@ function collectCurrentShrinkwrapOverrides(
     delete overrides[parentSelector];
   }
   return expandScopedOverrideChildren(overrides);
+}
+
+function hasMultipleStableMajorVersions(versions) {
+  if (!versions || versions.size < 2) {
+    return false;
+  }
+  const majors = new Set();
+  for (const version of versions) {
+    const parts = stableVersionParts(version);
+    if (!parts) {
+      return true;
+    }
+    majors.add(parts.major);
+  }
+  return majors.size > 1;
 }
 
 function readCurrentShrinkwrapOverrides(
