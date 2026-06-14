@@ -17,7 +17,7 @@ See also:
 - [`../plugin-contract.md`](../plugin-contract.md)
 - [`../polytropos-events.md`](../polytropos-events.md)
 
-## Master pull request flow
+## Use Pull Requests Exclusively
 
 `master` is write-protected.
 
