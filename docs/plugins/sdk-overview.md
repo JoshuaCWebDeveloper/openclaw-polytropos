@@ -230,9 +230,16 @@ The contracts intentionally split authority:
 - Reserved command ownership is bundled-only. External plugins should use their
   own command names or aliases.
 - `allowPromptInjection=false` disables prompt-mutating hooks including
-  `agent_turn_prepare`, `before_prompt_build`, `heartbeat_prompt_contribution`,
+  `agent_turn_prepare`, `before_prompt_build`,
+  `before_turn_developer_instructions`, `heartbeat_prompt_contribution`,
   prompt fields from legacy `before_agent_start`, and
   `enqueueNextTurnInjection`.
+
+`before_turn_developer_instructions` is the native-Codex seam for plugins that
+need the final turn-level developer instructions string rather than the
+thread-level system prompt. The hook receives `{ developerInstructions }` and
+may return a replacement `developerInstructions` string or
+`prependDeveloperInstructions` / `appendDeveloperInstructions` segments.
 
 Examples of non-Plan consumers:
 

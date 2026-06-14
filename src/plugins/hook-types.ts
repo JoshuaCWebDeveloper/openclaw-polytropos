@@ -16,6 +16,8 @@ import type {
   PluginHookBeforeModelResolveResult,
   PluginHookBeforePromptBuildEvent,
   PluginHookBeforePromptBuildResult,
+  PluginHookBeforeTurnDeveloperInstructionsEvent,
+  PluginHookBeforeTurnDeveloperInstructionsResult,
 } from "./hook-before-agent-start.types.js";
 import type { InputGateDecision } from "./hook-decision-types.js";
 import type {
@@ -44,6 +46,8 @@ export type {
   PluginHookBeforeModelResolveResult,
   PluginHookBeforePromptBuildEvent,
   PluginHookBeforePromptBuildResult,
+  PluginHookBeforeTurnDeveloperInstructionsEvent,
+  PluginHookBeforeTurnDeveloperInstructionsResult,
 } from "./hook-before-agent-start.types.js";
 export {
   PLUGIN_PROMPT_MUTATION_RESULT_FIELDS,
@@ -69,6 +73,7 @@ export type PluginHookName =
   | "before_model_resolve"
   | "agent_turn_prepare"
   | "before_prompt_build"
+  | "before_turn_developer_instructions"
   | "before_agent_start"
   | "before_agent_reply"
   | "model_call_started"
@@ -116,6 +121,7 @@ export const PLUGIN_HOOK_NAMES = [
   "before_model_resolve",
   "agent_turn_prepare",
   "before_prompt_build",
+  "before_turn_developer_instructions",
   "before_agent_start",
   "before_agent_reply",
   "model_call_started",
@@ -199,6 +205,7 @@ export const isPluginHookName = (hookName: unknown): hookName is PluginHookName 
 export const PROMPT_INJECTION_HOOK_NAMES = [
   "agent_turn_prepare",
   "before_prompt_build",
+  "before_turn_developer_instructions",
   "before_agent_start",
   "heartbeat_prompt_contribution",
 ] as const satisfies readonly PluginHookName[];
@@ -1008,6 +1015,13 @@ export type PluginHookHandlerMap = {
     event: PluginHookBeforePromptBuildEvent,
     ctx: PluginHookAgentContext,
   ) => Promise<PluginHookBeforePromptBuildResult | void> | PluginHookBeforePromptBuildResult | void;
+  before_turn_developer_instructions: (
+    event: PluginHookBeforeTurnDeveloperInstructionsEvent,
+    ctx: PluginHookAgentContext,
+  ) =>
+    | Promise<PluginHookBeforeTurnDeveloperInstructionsResult | void>
+    | PluginHookBeforeTurnDeveloperInstructionsResult
+    | void;
   /** @deprecated Use before_model_resolve and before_prompt_build. */
   before_agent_start: (
     event: PluginHookBeforeAgentStartEvent,
