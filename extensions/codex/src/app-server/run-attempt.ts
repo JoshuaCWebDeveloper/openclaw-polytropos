@@ -812,18 +812,18 @@ export async function runCodexAppServerAttempt(
       heartbeatCollaborationInstructions:
         workspaceBootstrapContext.heartbeatCollaborationInstructions,
     }).settings.developer_instructions ?? undefined;
-  let codexTurnDeveloperInstructionsHookResult:
+  let codexTurnCollaborationDeveloperInstructionsHookResult:
     | {
         developerInstructions?: string;
         prependDeveloperInstructions?: string;
         appendDeveloperInstructions?: string;
       }
     | undefined;
-  const resolveCodexTurnCollaborationDeveloperInstructions = async () => {
+  const buildCodexTurnCollaborationDeveloperInstructions = async () => {
     const baseCollaborationDeveloperInstructions =
       buildBaseCodexTurnCollaborationDeveloperInstructions();
     if (!hookRunner?.hasHooks("before_turn_developer_instructions")) {
-      codexTurnDeveloperInstructionsHookResult = undefined;
+      codexTurnCollaborationDeveloperInstructionsHookResult = undefined;
       return baseCollaborationDeveloperInstructions;
     }
     const result = await hookRunner.runBeforeTurnDeveloperInstructions(
@@ -832,7 +832,7 @@ export async function runCodexAppServerAttempt(
       },
       hookContext,
     );
-    codexTurnDeveloperInstructionsHookResult = result ?? undefined;
+    codexTurnCollaborationDeveloperInstructionsHookResult = result ?? undefined;
     if (!result) {
       return baseCollaborationDeveloperInstructions;
     }
@@ -856,17 +856,17 @@ export async function runCodexAppServerAttempt(
     return mergedDeveloperInstructions?.trim() ? mergedDeveloperInstructions : undefined;
   };
   const codexTurnCollaborationDeveloperInstructions =
-    await resolveCodexTurnCollaborationDeveloperInstructions();
+    await buildCodexTurnCollaborationDeveloperInstructions();
   const buildRenderedCodexDeveloperInstructions = () =>
     joinPresentSections(
       promptBuild.developerInstructions,
       codexTurnCollaborationDeveloperInstructions,
     );
-  const buildThreadStartupDeveloperInstructions = () =>
+  const buildCodexThreadStartupDeveloperInstructions = () =>
     joinPresentSections(
       promptBuild.developerInstructions,
-      codexTurnDeveloperInstructionsHookResult?.prependDeveloperInstructions,
-      codexTurnDeveloperInstructionsHookResult?.appendDeveloperInstructions,
+      codexTurnCollaborationDeveloperInstructionsHookResult?.prependDeveloperInstructions,
+      codexTurnCollaborationDeveloperInstructionsHookResult?.appendDeveloperInstructions,
     );
   const rebuildCodexPromptBuildFromCurrentProjection = async () => {
     promptBuild = await buildPromptFromCurrentInputs();
