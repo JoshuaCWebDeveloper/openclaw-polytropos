@@ -72,7 +72,7 @@ Polytropos continues to use the **same config file**:
 
 - `~/.openclaw/openclaw.json`
 
-If we need to introduce new _core_ config keys for the fork, they should be:
+If we need to introduce new *core* config keys for the fork, they should be:
 
 - namespaced under a single top-level object: `polytropos.*`
 - additive (safe defaults)
