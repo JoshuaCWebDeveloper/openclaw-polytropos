@@ -60,9 +60,6 @@ Pull requests will often need to be tested by releasing them before they are mer
 - All commits intended for `master` must arrive through a pull request based on `origin/master`.
 - Standard development pull requests target `master`, not a release branch.
 - Large project pull requests may target a `feature/<project-name>` branch until the project is ready for `master`.
-- Do not release from a development branch or from `master`.
-- Do not merge a release branch back into `master`.
-- `origin/main` is legacy and must not be used for development or release work.
 - Keep each pull request focused and include the documentation required by the fork policy.
 
 See also:
