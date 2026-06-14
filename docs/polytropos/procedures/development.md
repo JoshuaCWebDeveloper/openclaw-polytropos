@@ -6,16 +6,7 @@ Define how Polytropos feature work moves from plugin-first development to review
 
 ## Plugin-first contract
 
-Follow the plugin contract first.
-
-- Implement feature behavior in `polytropos-plugins` whenever possible.
-- Limit core-fork changes to the smallest plugin-enabling seam allowed by policy.
-- Do not land complete feature implementations in the fork.
-
-See also:
-
-- [`../plugin-contract.md`](../plugin-contract.md)
-- [`../polytropos-events.md`](../polytropos-events.md)
+The [`plugin contract`](../plugin-contract.md) must be followed.
 
 ## Use Pull Requests Exclusively
 
@@ -48,7 +39,7 @@ Large efforts that will span multiple pull requests should get a dedicated `feat
 
 ## Releasing PRs for Validation
 
-Pull requests will often need to be tested by releasing them before they are merged. Follow the "Release PR" procedure:
+Pull requests will often need to be tested by releasing them before they are merged. Follow the [release procedure](./release.md):
 
 1. Leave the pull request open.
 2. Check out the current `release/YYYY.M.D` branch.
@@ -61,4 +52,3 @@ Pull requests will often need to be tested by releasing them before they are mer
 - Standard development pull requests target `master`, not a release branch.
 - Large project pull requests may target a `feature/<project-name>` branch until the project is ready for `master`.
 - Keep each pull request focused and include the documentation required by the fork policy.
-

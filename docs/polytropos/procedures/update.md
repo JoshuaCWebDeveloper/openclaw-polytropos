@@ -36,8 +36,3 @@ Once the release branch builds cleanly and behaves correctly:
 
 - use the core release procedure to cut the next `vYYYY.M.D+poly.N` tag
 - stage/install that release from the same release branch
-
-See also:
-
-- [`./development.md`](./development.md)
-- [`./release.md`](./release.md)

@@ -58,8 +58,3 @@ Rollback uses the same model:
 1. point `current.tgz` back at the desired prior version (or restage it properly)
 2. reinstall if needed
 3. restart/reload the gateway
-
-See also:
-
-- [`./development.md`](./development.md)
-- [`./update.md`](./update.md)

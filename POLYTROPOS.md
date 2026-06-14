@@ -7,7 +7,7 @@ OpenClaw already has a powerful plugin system; the problem we kept hitting in pr
 - most changes live in **plugins** (fast iteration, low risk)
 - when core changes are needed, they are **tiny, explicit seams** (mergeable, reviewable)
 
-This repository is the *core fork* (the runtime + loader). Plugins live in a separate repo (see below).
+This repository is the _core fork_ (the runtime + loader). Plugins live in a separate repo (see below).
 
 ## Canonical Polytropos README
 
@@ -59,12 +59,6 @@ A development clone should define two remotes:
 - **Updates** start from the target upstream release ref and happen on `origin/release/YYYY.M.D`.
 - **Releases** are cut from `origin/release/YYYY.M.D`.
 - **Do not** use `origin/main` for update or release work.
-
-See also:
-
-- [`docs/polytropos/procedures/development.md`](docs/polytropos/procedures/development.md)
-- [`docs/polytropos/procedures/update.md`](docs/polytropos/procedures/update.md)
-- [`docs/polytropos/procedures/release.md`](docs/polytropos/procedures/release.md)
 
 ---
 
@@ -143,10 +137,5 @@ If a change doesn’t fit one of those buckets, it doesn’t belong in the fork.
 ---
 
 ## Current planning status
-
-See:
-
-- [`docs/polytropos/plugin-contract.md`](docs/polytropos/plugin-contract.md)
-- [`docs/polytropos/planning/`](docs/polytropos/planning/)
 
 M0/M2 are complete (plugin pipeline + migration workflow). Next major milestone is **M1: fork skeleton** (core seams + minimal namespace / structure for Polytropos-specific behavior).
