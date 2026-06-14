@@ -15,7 +15,6 @@ env:
   NODE_OPTIONS: "--max-old-space-size=6144"
   OPENCLAW_TSDOWN_NODE_OPTIONS: "--max-old-space-size=6144"
   NODE_VERSION: "24.15.0"
-  PNPM_VERSION: "11.0.8"
 
 jobs:
   build_pack:
@@ -33,7 +32,6 @@ jobs:
         uses: ./.github/actions/setup-node-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          pnpm-version: ${{ env.PNPM_VERSION }}
           install-bun: "false"
 
       - name: Runner resources
@@ -75,7 +73,7 @@ jobs:
           ls -la "$tgz"
       - name: Write build metadata
         run: |
-          node -e "const fs=require(\"fs\"); const pkg=require(\"./package.json\"); fs.writeFileSync(\"build-metadata.json\", JSON.stringify({name:pkg.name, version:pkg.version, sha:process.env.GITHUB_SHA, node:process.version, node_options:process.env.NODE_OPTIONS, pnpm:process.env.PNPM_VERSION, releaseTag: process.env.RELEASE_TAG || null}, null, 2));"
+          PNPM_VERSION="$(pnpm -v)" node -e "const fs=require(\"fs\"); const pkg=require(\"./package.json\"); fs.writeFileSync(\"build-metadata.json\", JSON.stringify({name:pkg.name, version:pkg.version, sha:process.env.GITHUB_SHA, node:process.version, node_options:process.env.NODE_OPTIONS, pnpm:process.env.PNPM_VERSION, releaseTag: process.env.RELEASE_TAG || null}, null, 2));"
       - name: Upload package artifact
         if: github.ref_type == 'tag'
         uses: actions/upload-artifact@v4
