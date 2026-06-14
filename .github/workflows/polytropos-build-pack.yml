@@ -3,6 +3,8 @@ name: Polytropos Build + Pack
 on:
   workflow_dispatch:
   push:
+    branches:
+      - "release/*"
     tags:
       - "v*poly.*"
 
@@ -14,10 +16,10 @@ env:
   NODE_OPTIONS: "--max-old-space-size=6144"
   OPENCLAW_TSDOWN_NODE_OPTIONS: "--max-old-space-size=6144"
   NODE_VERSION: "24.15.0"
-  PNPM_VERSION: "11.0.8"
 
 jobs:
   build_pack:
+    if: startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -31,9 +33,7 @@ jobs:
         uses: ./.github/actions/setup-node-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          pnpm-version: ${{ env.PNPM_VERSION }}
           install-bun: "false"
-          install-deps: "false"
 
       - name: Runner resources
         run: |
@@ -45,16 +45,7 @@ jobs:
         env:
           PNPM_CONFIG_MINIMUM_RELEASE_AGE: "0"
           PNPM_CONFIG_MINIMUM_RELEASE_AGE_IGNORE_MISSING_TIME: "true"
-          PNPM_CONFIG_STORE_DIR: /home/runner/.local/share/pnpm/store-debug
-        run: |
-          set -euo pipefail
-          corepack enable
-          corepack prepare pnpm@11.0.8 --activate
-          echo "Node: $(node -v)"
-          echo "pnpm: $(pnpm -v)"
-          echo "PNPM_CONFIG_STORE_DIR=$PNPM_CONFIG_STORE_DIR"
-          pnpm config get store-dir || true
-          pnpm install --frozen-lockfile --reporter append-only
+        run: pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm build
@@ -83,7 +74,7 @@ jobs:
           ls -la "$tgz"
       - name: Write build metadata
         run: |
-          node -e "const fs=require(\"fs\"); const pkg=require(\"./package.json\"); fs.writeFileSync(\"build-metadata.json\", JSON.stringify({name:pkg.name, version:pkg.version, sha:process.env.GITHUB_SHA, node:process.version, node_options:process.env.NODE_OPTIONS, pnpm:process.env.PNPM_VERSION, releaseTag: process.env.RELEASE_TAG || null}, null, 2));"
+          PNPM_VERSION="$(pnpm -v)" node -e "const fs=require(\"fs\"); const pkg=require(\"./package.json\"); fs.writeFileSync(\"build-metadata.json\", JSON.stringify({name:pkg.name, version:pkg.version, sha:process.env.GITHUB_SHA, node:process.version, node_options:process.env.NODE_OPTIONS, pnpm:process.env.PNPM_VERSION, releaseTag: process.env.RELEASE_TAG || null}, null, 2));"
       - name: Upload package artifact
         if: github.ref_type == 'tag'
         uses: actions/upload-artifact@v4
