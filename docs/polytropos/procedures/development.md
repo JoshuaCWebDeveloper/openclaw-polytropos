@@ -62,7 +62,3 @@ Pull requests will often need to be tested by releasing them before they are mer
 - Large project pull requests may target a `feature/<project-name>` branch until the project is ready for `master`.
 - Keep each pull request focused and include the documentation required by the fork policy.
 
-See also:
-
-- [`./release.md`](./release.md)
-- [`./update.md`](./update.md)
