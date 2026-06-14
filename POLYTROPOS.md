@@ -7,7 +7,7 @@ OpenClaw already has a powerful plugin system; the problem we kept hitting in pr
 - most changes live in **plugins** (fast iteration, low risk)
 - when core changes are needed, they are **tiny, explicit seams** (mergeable, reviewable)
 
-This repository is the _core fork_ (the runtime + loader). Plugins live in a separate repo (see below).
+This repository is the *core fork* (the runtime + loader). Plugins live in a separate repo (see below).
 
 ## Canonical Polytropos README
 
