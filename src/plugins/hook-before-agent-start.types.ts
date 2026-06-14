@@ -41,6 +41,16 @@ export type PluginHookBeforePromptBuildResult = {
   appendSystemContext?: string;
 };
 
+export type PluginHookBeforeTurnDeveloperInstructionsEvent = {
+  developerInstructions: string;
+};
+
+export type PluginHookBeforeTurnDeveloperInstructionsResult = {
+  developerInstructions?: string;
+  prependDeveloperInstructions?: string;
+  appendDeveloperInstructions?: string;
+};
+
 export const PLUGIN_PROMPT_MUTATION_RESULT_FIELDS = [
   "systemPrompt",
   "prependContext",

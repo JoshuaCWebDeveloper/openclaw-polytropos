@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD024 -->
+
 # OpenClaw Node.js Process Inventory
 
 ## Scope

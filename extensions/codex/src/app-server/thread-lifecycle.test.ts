@@ -4,6 +4,7 @@ import path from "node:path";
 import type { EmbeddedRunAttemptParams } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CODEX_GPT5_BEHAVIOR_CONTRACT } from "../../prompt-overlay.js";
+import { createCodexTestModel } from "./test-support.js";
 import {
   buildDeveloperInstructions,
   buildTurnCollaborationMode,
@@ -17,7 +18,6 @@ import {
   startOrResumeThread,
   type CodexThreadLifecycleTimingLogger,
 } from "./thread-lifecycle.js";
-import { createCodexTestModel } from "./test-support.js";
 
 let tempDir: string;
 
@@ -536,6 +536,22 @@ describe("Codex app-server turn input image sanitizing", () => {
     );
     expect(request.collaborationMode?.settings.developer_instructions).toContain(
       "SOUL.md turn-only context",
+    );
+  });
+
+  it("uses explicit collaboration developer instructions when provided", () => {
+    const request = buildTurnStartParams(createAttemptParams({ provider: "openai" }), {
+      threadId: "thread-1",
+      cwd: "/repo",
+      appServer: createAppServerOptions() as never,
+      collaborationDeveloperInstructions: "hook-mutated turn instructions",
+      turnScopedDeveloperInstructions: "SOUL.md turn-only context",
+      memoryCollaborationInstructions: "MEMORY.md pointer",
+      skillsCollaborationInstructions: "<available_skills>",
+    });
+
+    expect(request.collaborationMode?.settings.developer_instructions).toBe(
+      "hook-mutated turn instructions",
     );
   });
 

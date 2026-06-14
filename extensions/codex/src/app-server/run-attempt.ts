@@ -213,6 +213,7 @@ import {
 } from "./session-binding.js";
 import { rotateOversizedCodexAppServerStartupBinding } from "./startup-binding.js";
 import {
+  buildDefaultCollaborationInstructions,
   buildDeveloperInstructions,
   buildContextEngineBinding,
   buildTurnCollaborationMode,
@@ -803,7 +804,7 @@ export async function runCodexAppServerAttempt(
         params.bootstrapContextMode === "lightweight" && params.bootstrapContextRunKind === "cron",
     });
   let codexTurnPromptText = decorateCodexTurnPromptText(promptBuild.prompt);
-  const buildCodexTurnCollaborationDeveloperInstructions = () =>
+  const buildBaseCodexTurnCollaborationDeveloperInstructions = () =>
     buildTurnCollaborationMode(params, {
       turnScopedDeveloperInstructions: workspaceBootstrapContext.turnScopedDeveloperInstructions,
       skillsCollaborationInstructions,
@@ -811,10 +812,46 @@ export async function runCodexAppServerAttempt(
       heartbeatCollaborationInstructions:
         workspaceBootstrapContext.heartbeatCollaborationInstructions,
     }).settings.developer_instructions ?? undefined;
+  const resolveCodexTurnCollaborationDeveloperInstructions = async () => {
+    const baseCollaborationDeveloperInstructions =
+      buildBaseCodexTurnCollaborationDeveloperInstructions();
+    if (!hookRunner?.hasHooks("before_turn_developer_instructions")) {
+      return baseCollaborationDeveloperInstructions;
+    }
+    const result = await hookRunner.runBeforeTurnDeveloperInstructions(
+      {
+        developerInstructions: baseCollaborationDeveloperInstructions ?? "",
+      },
+      hookContext,
+    );
+    if (!result) {
+      return baseCollaborationDeveloperInstructions;
+    }
+    const defaultCollaborationInstructions =
+      typeof result.developerInstructions === "string" ||
+      (typeof result.prependDeveloperInstructions !== "string" &&
+        typeof result.appendDeveloperInstructions !== "string")
+        ? undefined
+        : buildDefaultCollaborationInstructions();
+    const effectiveBaseDeveloperInstructions =
+      baseCollaborationDeveloperInstructions ?? defaultCollaborationInstructions;
+    const nextDeveloperInstructions =
+      typeof result.developerInstructions === "string"
+        ? result.developerInstructions
+        : effectiveBaseDeveloperInstructions;
+    const mergedDeveloperInstructions = joinPresentSections(
+      result.prependDeveloperInstructions,
+      nextDeveloperInstructions,
+      result.appendDeveloperInstructions,
+    );
+    return mergedDeveloperInstructions?.trim() ? mergedDeveloperInstructions : undefined;
+  };
+  const codexTurnCollaborationDeveloperInstructions =
+    await resolveCodexTurnCollaborationDeveloperInstructions();
   const buildRenderedCodexDeveloperInstructions = () =>
     joinPresentSections(
       promptBuild.developerInstructions,
-      buildCodexTurnCollaborationDeveloperInstructions(),
+      codexTurnCollaborationDeveloperInstructions,
     );
   const rebuildCodexPromptBuildFromCurrentProjection = async () => {
     promptBuild = await buildPromptFromCurrentInputs();
@@ -1856,6 +1893,7 @@ export async function runCodexAppServerAttempt(
       promptText: codexTurnPromptText,
       sandboxPolicy: codexSandboxPolicy,
       environmentSelection: codexEnvironmentSelection,
+      collaborationDeveloperInstructions: codexTurnCollaborationDeveloperInstructions,
       turnScopedDeveloperInstructions: workspaceBootstrapContext.turnScopedDeveloperInstructions,
       skillsCollaborationInstructions,
       memoryCollaborationInstructions: workspaceBootstrapContext.memoryCollaborationInstructions,

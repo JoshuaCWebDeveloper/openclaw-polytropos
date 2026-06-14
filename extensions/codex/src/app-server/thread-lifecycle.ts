@@ -153,10 +153,8 @@ export function shouldWarnCodexThreadLifecycleTimingSummary(
   summary: CodexThreadLifecycleTimingSummary,
   options: CodexThreadLifecycleTimingOptions = {},
 ): boolean {
-  const totalThresholdMs =
-    options.totalThresholdMs ?? CODEX_THREAD_LIFECYCLE_TIMING_WARN_TOTAL_MS;
-  const stageThresholdMs =
-    options.stageThresholdMs ?? CODEX_THREAD_LIFECYCLE_TIMING_WARN_STAGE_MS;
+  const totalThresholdMs = options.totalThresholdMs ?? CODEX_THREAD_LIFECYCLE_TIMING_WARN_TOTAL_MS;
+  const stageThresholdMs = options.stageThresholdMs ?? CODEX_THREAD_LIFECYCLE_TIMING_WARN_STAGE_MS;
   return (
     summary.totalMs >= totalThresholdMs ||
     summary.spans.some((span) => span.durationMs >= stageThresholdMs)
@@ -310,8 +308,7 @@ export async function startOrResumeThread(params: {
   // turns should not pay Date.now/span-array overhead while resuming threads.
   const lifecycleTiming = createCodexThreadLifecycleTimingTracker({
     ...params.timing,
-    enabled:
-      params.timing?.enabled ?? isCodexAppServerProfilerEnabled(params.params.config),
+    enabled: params.timing?.enabled ?? isCodexAppServerProfilerEnabled(params.params.config),
   });
   const dynamicToolsFingerprint = lifecycleTiming.measureSync("dynamic-tools-fingerprint", () =>
     fingerprintDynamicTools(params.dynamicTools),
@@ -1041,6 +1038,7 @@ export function buildTurnStartParams(
     promptText?: string;
     sandboxPolicy?: CodexSandboxPolicy;
     environmentSelection?: CodexTurnEnvironmentParams[];
+    collaborationDeveloperInstructions?: string;
     turnScopedDeveloperInstructions?: string;
     skillsCollaborationInstructions?: string;
     memoryCollaborationInstructions?: string;
@@ -1061,6 +1059,7 @@ export function buildTurnStartParams(
     effort: resolveReasoningEffort(params.thinkLevel, params.modelId),
     ...(options.environmentSelection ? { environments: options.environmentSelection } : {}),
     collaborationMode: buildTurnCollaborationMode(params, {
+      developerInstructions: options.collaborationDeveloperInstructions,
       turnScopedDeveloperInstructions: options.turnScopedDeveloperInstructions,
       skillsCollaborationInstructions: options.skillsCollaborationInstructions,
       memoryCollaborationInstructions: options.memoryCollaborationInstructions,
@@ -1087,6 +1086,7 @@ type CodexTurnCollaborationMode = NonNullable<CodexTurnStartParams["collaboratio
 export function buildTurnCollaborationMode(
   params: EmbeddedRunAttemptParams,
   options: {
+    developerInstructions?: string;
     turnScopedDeveloperInstructions?: string;
     skillsCollaborationInstructions?: string;
     memoryCollaborationInstructions?: string;
@@ -1098,7 +1098,10 @@ export function buildTurnCollaborationMode(
     settings: {
       model: params.modelId,
       reasoning_effort: resolveReasoningEffort(params.thinkLevel, params.modelId),
-      developer_instructions: buildTurnScopedCollaborationInstructions(params, options),
+      developer_instructions:
+        typeof options.developerInstructions === "string"
+          ? options.developerInstructions
+          : buildTurnScopedCollaborationInstructions(params, options),
     },
   };
 }
@@ -1133,7 +1136,7 @@ function buildTurnScopedCollaborationInstructions(
   return null;
 }
 
-function buildDefaultCollaborationInstructions(): string {
+export function buildDefaultCollaborationInstructions(): string {
   // Codex only applies the built-in Default-mode preset when `developer_instructions`
   // is null. OpenClaw adds per-turn workspace instructions here, so preserve that
   // pinned Codex default behavior before appending the workspace overlay.

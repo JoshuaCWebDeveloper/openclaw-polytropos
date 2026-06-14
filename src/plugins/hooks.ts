@@ -41,6 +41,8 @@ import type {
   PluginHookBeforeModelResolveResult,
   PluginHookBeforePromptBuildEvent,
   PluginHookBeforePromptBuildResult,
+  PluginHookBeforeTurnDeveloperInstructionsEvent,
+  PluginHookBeforeTurnDeveloperInstructionsResult,
   PluginHookBeforeCompactionEvent,
   PluginHookModelCallEndedEvent,
   PluginHookModelCallStartedEvent,
@@ -115,6 +117,8 @@ export type {
   PluginHookBeforeModelResolveResult,
   PluginHookBeforePromptBuildEvent,
   PluginHookBeforePromptBuildResult,
+  PluginHookBeforeTurnDeveloperInstructionsEvent,
+  PluginHookBeforeTurnDeveloperInstructionsResult,
   PluginHookModelCallEndedEvent,
   PluginHookModelCallStartedEvent,
   PluginHookLlmInputEvent,
@@ -229,6 +233,7 @@ const DEFAULT_MODIFYING_HOOK_TIMEOUT_MS_BY_HOOK: Partial<Record<PluginHookName, 
   // logged and the run proceeds without its modifications.
   before_agent_start: 15_000,
   before_prompt_build: 15_000,
+  before_turn_developer_instructions: 15_000,
   resolve_exec_env: 15_000,
 };
 
@@ -385,6 +390,24 @@ export function createHookRunner(
     appendSystemContext: concatOptionalTextSegments({
       left: acc?.appendSystemContext,
       right: next.appendSystemContext,
+    }),
+  });
+
+  const mergeBeforeTurnDeveloperInstructions = (
+    acc: PluginHookBeforeTurnDeveloperInstructionsResult | undefined,
+    next: PluginHookBeforeTurnDeveloperInstructionsResult,
+  ): PluginHookBeforeTurnDeveloperInstructionsResult => ({
+    developerInstructions:
+      typeof acc?.developerInstructions === "string"
+        ? acc.developerInstructions
+        : next.developerInstructions,
+    prependDeveloperInstructions: concatOptionalTextSegments({
+      left: acc?.prependDeveloperInstructions,
+      right: next.prependDeveloperInstructions,
+    }),
+    appendDeveloperInstructions: concatOptionalTextSegments({
+      left: acc?.appendDeveloperInstructions,
+      right: next.appendDeveloperInstructions,
     }),
   });
 
@@ -851,6 +874,18 @@ export function createHookRunner(
       ctx,
       { mergeResults: mergeBeforePromptBuild },
     );
+  }
+
+  async function runBeforeTurnDeveloperInstructions(
+    event: PluginHookBeforeTurnDeveloperInstructionsEvent,
+    ctx: PluginHookAgentContext,
+  ): Promise<PluginHookBeforeTurnDeveloperInstructionsResult | undefined> {
+    return runModifyingHook<
+      "before_turn_developer_instructions",
+      PluginHookBeforeTurnDeveloperInstructionsResult
+    >("before_turn_developer_instructions", event, ctx, {
+      mergeResults: mergeBeforeTurnDeveloperInstructions,
+    });
   }
 
   async function runAgentTurnPrepare(
@@ -1626,6 +1661,7 @@ export function createHookRunner(
     runBeforeModelResolve,
     runAgentTurnPrepare,
     runBeforePromptBuild,
+    runBeforeTurnDeveloperInstructions,
     runBeforeAgentStart,
     runBeforeAgentReply,
     runModelCallStarted,
