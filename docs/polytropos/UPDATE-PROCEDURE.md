@@ -39,5 +39,5 @@ Once the release branch builds cleanly and behaves correctly:
 
 See also:
 
-- [`../../POLYTROPOS.md`](../../POLYTROPOS.md)
+- `POLYTROPOS.md`
 - [`./CORE-RELEASES.md`](./CORE-RELEASES.md)

@@ -61,5 +61,5 @@ Rollback uses the same model:
 
 See also:
 
-- [`../../POLYTROPOS.md`](../../POLYTROPOS.md)
+- `POLYTROPOS.md`
 - [`./UPDATE-PROCEDURE.md`](./UPDATE-PROCEDURE.md)

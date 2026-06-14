@@ -78,30 +78,6 @@
         "npm": ">=8.6.0"
       }
     },
-    "node_modules/@slack/oauth/node_modules/@slack/web-api": {
-      "version": "7.15.2",
-      "resolved": "https://registry.npmjs.org/@slack/web-api/-/web-api-7.15.2.tgz",
-      "integrity": "sha512-/m9qVFkiq85Oa/FSQwYIRDa/AO4qNYkDh4sRBK1WqEc2+RyG7w4tbU6rBIwUOcc/TmWOIr24Nraquxg7um5mYw==",
-      "license": "MIT",
-      "dependencies": {
-        "@slack/logger": "^4.0.1",
-        "@slack/types": "^2.21.0",
-        "@types/node": ">=18",
-        "@types/retry": "0.12.0",
-        "axios": "^1.15.0",
-        "eventemitter3": "^5.0.1",
-        "form-data": "^4.0.4",
-        "is-electron": "2.2.2",
-        "is-stream": "^2",
-        "p-queue": "^6",
-        "p-retry": "^4",
-        "retry": "^0.13.1"
-      },
-      "engines": {
-        "node": ">= 18",
-        "npm": ">= 8.6.0"
-      }
-    },
     "node_modules/@slack/socket-mode": {
       "version": "2.0.7",
       "resolved": "https://registry.npmjs.org/@slack/socket-mode/-/socket-mode-2.0.7.tgz",
@@ -114,30 +90,6 @@
         "@types/ws": "^8",
         "eventemitter3": "^5",
         "ws": "^8"
-      },
-      "engines": {
-        "node": ">= 18",
-        "npm": ">= 8.6.0"
-      }
-    },
-    "node_modules/@slack/socket-mode/node_modules/@slack/web-api": {
-      "version": "7.15.2",
-      "resolved": "https://registry.npmjs.org/@slack/web-api/-/web-api-7.15.2.tgz",
-      "integrity": "sha512-/m9qVFkiq85Oa/FSQwYIRDa/AO4qNYkDh4sRBK1WqEc2+RyG7w4tbU6rBIwUOcc/TmWOIr24Nraquxg7um5mYw==",
-      "license": "MIT",
-      "dependencies": {
-        "@slack/logger": "^4.0.1",
-        "@slack/types": "^2.21.0",
-        "@types/node": ">=18",
-        "@types/retry": "0.12.0",
-        "axios": "^1.15.0",
-        "eventemitter3": "^5.0.1",
-        "form-data": "^4.0.4",
-        "is-electron": "2.2.2",
-        "is-stream": "^2",
-        "p-queue": "^6",
-        "p-retry": "^4",
-        "retry": "^0.13.1"
       },
       "engines": {
         "node": ">= 18",

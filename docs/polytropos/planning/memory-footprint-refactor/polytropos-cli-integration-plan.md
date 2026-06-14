@@ -19,7 +19,7 @@ Commander CLI wholesale inside a daemonized fake process runtime.
 
 The full OpenClaw CLI is still strongly process-shaped:
 
-- [src/entry.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/entry.ts) mutates `process.argv`, `process.env`, process title, and respawn behavior
+- `src/entry.ts` mutates `process.argv`, `process.env`, process title, and respawn behavior
 - `run-main` and the CLI program stack install process-global handlers and rely on process lifecycle cleanup
 - many command paths still assume direct ownership of stdout/stderr, environment, and singleton module state
 
@@ -38,10 +38,10 @@ OpenClaw already has a real plugin CLI registration system.
 
 Relevant files:
 
-- [src/plugins/registry.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/plugins/registry.ts)
-- [src/plugins/cli.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/plugins/cli.ts)
-- [src/plugins/types.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/plugins/types.ts)
-- [src/plugins/captured-registration.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/plugins/captured-registration.ts)
+- `src/plugins/registry.ts`
+- `src/plugins/cli.ts`
+- `src/plugins/types.ts`
+- `src/plugins/captured-registration.ts`
 
 Current pattern:
 
@@ -53,9 +53,9 @@ Current pattern:
 
 Examples:
 
-- [extensions/browser/index.ts](/home/ec2-user/polytropos/openclaw-polytropos/extensions/browser/index.ts)
-- [extensions/memory-core/index.ts](/home/ec2-user/polytropos/openclaw-polytropos/extensions/memory-core/index.ts)
-- [extensions/matrix/index.ts](/home/ec2-user/polytropos/openclaw-polytropos/extensions/matrix/index.ts)
+- `extensions/browser/index.ts`
+- `extensions/memory-core/index.ts`
+- `extensions/matrix/index.ts`
 
 Important nuance:
 
@@ -174,7 +174,7 @@ the terminal CLI.
 
 Relevant file:
 
-- [src/agents/tool-catalog.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/agents/tool-catalog.ts)
+- `src/agents/tool-catalog.ts`
 
 Representative primary tools include:
 
@@ -292,7 +292,7 @@ implementation does exist on the locally available `upstream/main` ref.
 
 Relevant upstream files:
 
-- [src/cli/hooks-cli.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/cli/hooks-cli.ts)
+- `src/cli/hooks-cli.ts`
   registers hidden `hooks relay`
 - `src/cli/native-hook-relay-cli.ts`
   implements the thin CLI adapter around stdin/stdout and relay dispatch
@@ -313,7 +313,7 @@ That means the analysis splits into:
 These look reusable with little or no semantic change:
 
 - CLI argv helpers such as primary-command extraction and root-option parsing in
-  [src/cli/argv.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/cli/argv.ts)
+  `src/cli/argv.ts`
 - the request/response contract and validation logic in
   `src/agents/harness/native-hook-relay.ts`
 - provider payload normalization and response rendering in
@@ -323,16 +323,16 @@ These look reusable with little or no semantic change:
 - the thin Gateway fallback surface in
   `src/gateway/server-methods/native-hook-relay.ts`
 - plugin hook policy and hook precedence resolution in
-  [src/hooks/policy.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/hooks/policy.ts)
+  `src/hooks/policy.ts`
 - internal hook loading in
-  [src/hooks/loader.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/hooks/loader.ts)
+  `src/hooks/loader.ts`
 - typed plugin hook execution in
-  [src/plugins/hooks.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/plugins/hooks.ts)
+  `src/plugins/hooks.ts`
 - plugin runtime state surfaces in
-  [src/plugins/runtime.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/plugins/runtime.ts)
+  `src/plugins/runtime.ts`
 - metadata-only plugin CLI discovery via
-  [src/plugins/loader.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/plugins/loader.ts)
-  and [src/plugins/cli.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/plugins/cli.ts)
+  `src/plugins/loader.ts`
+  and `src/plugins/cli.ts`
 - the existing in-memory takeover mechanism
   `registerPluginCliCommands(..., { primary })`
 
@@ -367,7 +367,7 @@ So these should be treated as:
 ### Current core path that blocks direct builtin override
 
 Current `runCli()` behavior in
-[src/cli/run-main.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/cli/run-main.ts)
+`src/cli/run-main.ts`
 registers the built-in primary command first:
 
 - `registerCoreCliByName(...)`
@@ -379,7 +379,7 @@ Then it decides whether to skip plugin CLI registration:
   skipped entirely
 
 That matters because `hooks` is currently a built-in sub-CLI root, registered in
-[src/cli/program/register.subclis.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/cli/program/register.subclis.ts).
+`src/cli/program/register.subclis.ts`.
 
 Implication:
 
@@ -403,20 +403,20 @@ to treat as the reusable hot path:
     registries
   - that makes it a poor target for a drop-in "move unchanged into another
     daemon" approach
-- [src/entry.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/entry.ts)
+- `src/entry.ts`
   - respawn logic
   - process env mutation
   - process title
   - compile-cache setup
-- [src/cli/run-main.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/cli/run-main.ts)
+- `src/cli/run-main.ts`
   - dotenv loading
   - PATH rewriting
   - console capture
   - uncaught exception / rejection handlers
   - full Commander program build
 - full plugin registry activation in
-  [src/cli/plugin-registry.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/cli/plugin-registry.ts)
-  and [src/plugins/loader.ts](/home/ec2-user/polytropos/openclaw-polytropos/src/plugins/loader.ts)
+  `src/cli/plugin-registry.ts`
+  and `src/plugins/loader.ts`
 
 These are likely daemon-startup concerns at most, not per-relay invocation work.
 
