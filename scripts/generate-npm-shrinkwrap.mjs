@@ -380,8 +380,33 @@ function readShrinkwrapOverrides() {
 function packageJsonForShrinkwrap(packageJson, shrinkwrapOverrides) {
   const normalized = { ...packageJson };
   delete normalized.devDependencies;
-  normalized.overrides = mergeOverrides(packageJson.overrides, shrinkwrapOverrides, {});
+  const declaredDependencies = declaredPackageDependencySpecs(packageJson);
+  const overrides = mergeOverrides(packageJson.overrides, shrinkwrapOverrides, {});
+  normalized.overrides =
+    overrides &&
+    Object.fromEntries(
+      Object.entries(overrides).filter(([selector, spec]) =>
+        shouldKeepShrinkwrapOverride(selector, spec, declaredDependencies),
+      ),
+    );
   return normalized;
+}
+
+function shouldKeepShrinkwrapOverride(selector, spec, declaredDependencies) {
+  const dependencySpec = declaredDependencies.get(overrideSelectorPackageName(selector));
+  if (dependencySpec === undefined) {
+    return true;
+  }
+  if (isPlainObject(spec)) {
+    return false;
+  }
+  return (
+    exactVersionFromOverrideSpec(String(spec)) === exactVersionFromOverrideSpec(dependencySpec)
+  );
+}
+
+function overrideSelectorPackageName(selector) {
+  return parsePnpmPackageKey(selector)?.name ?? selector;
 }
 
 export function createNpmShrinkwrapCommand(args, options = {}) {
@@ -452,6 +477,13 @@ function shouldUseLegacyPeerDepsForShrinkwrap(
   packageJson,
   packageExtensions = readWorkspacePackageExtensions(),
 ) {
+  if (
+    packageJson.name === "@openclaw/memory-lancedb" &&
+    packageJson.dependencies?.["@lancedb/lancedb"] &&
+    packageJson.dependencies?.["apache-arrow"]
+  ) {
+    return true;
+  }
   if (
     packageExtensionMarksOptionalPeer({ peerDependenciesMeta: packageJson.peerDependenciesMeta })
   ) {
@@ -756,17 +788,21 @@ function collectPnpmLockViolations(shrinkwrap, pnpmLockPackages = readPnpmLockPa
 }
 
 function declaredPackageDependencies(packageJson) {
-  const dependencies = new Set();
+  return new Set(declaredPackageDependencySpecs(packageJson).keys());
+}
+
+function declaredPackageDependencySpecs(packageJson) {
+  const dependencySpecs = new Map();
   for (const key of ["dependencies", "optionalDependencies", "peerDependencies"]) {
     const values = packageJson?.[key];
     if (!values || typeof values !== "object" || Array.isArray(values)) {
       continue;
     }
-    for (const dependencyName of Object.keys(values)) {
-      dependencies.add(dependencyName);
+    for (const [dependencyName, dependencySpec] of Object.entries(values)) {
+      dependencySpecs.set(dependencyName, String(dependencySpec));
     }
   }
-  return dependencies;
+  return dependencySpecs;
 }
 
 function packageNameForLockPath(lockPath) {
@@ -908,71 +944,15 @@ function readCurrentShrinkwrap(packageDir) {
   }
 }
 
-function isStablePatchDrift(generatedVersion, currentVersion) {
+function isStableCompatibleDrift(generatedVersion, currentVersion) {
   const generatedParts = stableVersionParts(generatedVersion);
   const currentParts = stableVersionParts(currentVersion);
   return (
     generatedParts !== null &&
     currentParts !== null &&
     generatedParts.major === currentParts.major &&
-    generatedParts.minor === currentParts.minor &&
-    generatedParts.patch !== currentParts.patch
-  );
-}
-
-function compareStableVersions(leftVersion, rightVersion) {
-  const left = stableVersionParts(leftVersion);
-  const right = stableVersionParts(rightVersion);
-  if (!left || !right) {
-    return null;
-  }
-  return left.major - right.major || left.minor - right.minor || left.patch - right.patch;
-}
-
-function versionSatisfiesSimpleSpec(version, spec) {
-  const normalized = typeof spec === "string" ? spec.trim() : "";
-  if (normalized === "" || normalized === "*") {
-    return true;
-  }
-  const match = normalized.match(/^(?<operator>\^|~|>=)?(?<version>\d+\.\d+\.\d+)$/u);
-  if (!match?.groups) {
-    return normalized === version;
-  }
-  const minimumVersion = match.groups.version;
-  const comparison = compareStableVersions(version, minimumVersion);
-  if (comparison === null || comparison < 0) {
-    return false;
-  }
-  const candidate = stableVersionParts(version);
-  const minimum = stableVersionParts(minimumVersion);
-  if (!candidate || !minimum) {
-    return false;
-  }
-  switch (match.groups.operator) {
-    case "^":
-      return minimum.major > 0
-        ? candidate.major === minimum.major
-        : minimum.minor > 0
-          ? candidate.major === 0 && candidate.minor === minimum.minor
-          : candidate.major === 0 && candidate.minor === 0 && candidate.patch === minimum.patch;
-    case "~":
-      return candidate.major === minimum.major && candidate.minor === minimum.minor;
-    case ">=":
-      return true;
-    default:
-      return comparison === 0;
-  }
-}
-
-function dependencySpecForLockPath(packages, lockPath, dependencyName) {
-  const packagePath = parseLockPackagePath(lockPath);
-  const parentPath = packagePath.at(-2)?.path ?? "";
-  const parent = packages[parentPath];
-  return (
-    parent?.dependencies?.[dependencyName] ??
-    parent?.optionalDependencies?.[dependencyName] ??
-    parent?.peerDependencies?.[dependencyName] ??
-    null
+    (generatedParts.major > 0 ? true : generatedParts.minor === currentParts.minor) &&
+    generatedVersion !== currentVersion
   );
 }
 
@@ -980,6 +960,7 @@ function restoreCurrentPnpmLockedPackages(
   generated,
   current,
   pnpmLockPackages = readPnpmLockPackages(),
+  pnpmLockVersionOverrides = readPnpmLockVersionOverrides(),
 ) {
   if (!current) {
     return generated;
@@ -1004,6 +985,21 @@ function restoreCurrentPnpmLockedPackages(
       continue;
     }
 
+    const pnpmLockedVersion = pnpmLockVersionOverrides[packageName];
+    const replacementMetadata =
+      typeof pnpmLockedVersion === "string" &&
+      isStableCompatibleDrift(metadata.version, pnpmLockedVersion)
+        ? findShrinkwrapPackageMetadata(
+            [generatedPackages, currentPackages],
+            packageName,
+            pnpmLockedVersion,
+          )
+        : null;
+    if (replacementMetadata) {
+      generatedPackages[lockPath] = replacementMetadata;
+      continue;
+    }
+
     const currentMetadata = currentPackages[lockPath];
     const currentPackageName = currentMetadata?.name ?? packageNameForLockPath(lockPath);
     if (
@@ -1011,23 +1007,34 @@ function restoreCurrentPnpmLockedPackages(
       typeof currentMetadata !== "object" ||
       !currentMetadata.version ||
       currentPackageName !== packageName ||
-      !isStablePatchDrift(metadata.version, currentMetadata.version) ||
-      !versionSatisfiesSimpleSpec(
-        currentMetadata.version,
-        dependencySpecForLockPath(generatedPackages, lockPath, packageName),
-      ) ||
+      !isStableCompatibleDrift(metadata.version, currentMetadata.version) ||
       !pnpmLockPackages.has(`${packageName}@${currentMetadata.version}`)
     ) {
       continue;
     }
 
-    // npm can float transitive patch ranges beyond pnpm's lock when one package
-    // name has multiple locked major lines. Keep the existing shrinkwrap entry
-    // when it still matches the canonical pnpm lock.
+    // npm can resolve transitive patch versions that diverge from pnpm's lock.
+    // Keep the existing shrinkwrap entry when it still matches the canonical
+    // pnpm lock, including package versions forced by workspace overrides.
     generatedPackages[lockPath] = currentMetadata;
   }
 
   return generated;
+}
+
+function findShrinkwrapPackageMetadata(packageSets, packageName, version) {
+  for (const packages of packageSets) {
+    for (const [candidatePath, metadata] of Object.entries(packages)) {
+      if (candidatePath === "" || !metadata || typeof metadata !== "object") {
+        continue;
+      }
+      const candidatePackageName = metadata.name ?? packageNameForLockPath(candidatePath);
+      if (candidatePackageName === packageName && metadata.version === version) {
+        return JSON.parse(JSON.stringify(metadata));
+      }
+    }
+  }
+  return null;
 }
 
 function assertShrinkwrapMatchesPnpmLock(shrinkwrap) {
