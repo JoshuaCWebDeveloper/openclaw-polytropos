@@ -164,12 +164,15 @@ describe("toClientToolDefinitions – param coercion", () => {
       throw new Error("missing client tool definition");
     }
 
-    expect(definition.parameters.properties).toMatchObject({
+    const parameters = definition.parameters as { properties: Record<string, unknown> };
+    expect(parameters.properties).toMatchObject({
       cmd: { type: "string" },
       background: { type: "boolean" },
     });
     expect(
       validateToolArguments(definition, {
+        type: "toolCall",
+        id: "call-1",
         name: "exec_command",
         arguments: { cmd: "sleep 1", background: true },
       }),
