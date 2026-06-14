@@ -1718,11 +1718,9 @@ describe("runCodexAppServerAttempt", () => {
   });
 
   it("applies before_turn_developer_instructions only to Codex turn collaboration instructions", async () => {
-    const beforeTurnDeveloperInstructions = vi.fn(
-      async (_event: { developerInstructions: string }) => ({
-        appendDeveloperInstructions: "appended turn instructions",
-      }),
-    );
+    const beforeTurnDeveloperInstructions = vi.fn(async () => ({
+      appendDeveloperInstructions: "appended turn instructions",
+    }));
     initializeGlobalHookRunner(
       createMockPluginRegistry([
         {
