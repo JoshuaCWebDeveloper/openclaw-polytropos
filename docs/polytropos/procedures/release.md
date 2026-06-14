@@ -54,10 +54,7 @@ After staging succeeds, restart/reload the gateway using the correct environment
 ## Rollback
 
 Rollback uses the same model:
+
 1. point `current.tgz` back at the desired prior version (or restage it properly)
 2. reinstall if needed
 3. restart/reload the gateway
-
-See also:
-- [`../../POLYTROPOS.md`](../../POLYTROPOS.md)
-- [`./UPDATE-PROCEDURE.md`](./UPDATE-PROCEDURE.md)
