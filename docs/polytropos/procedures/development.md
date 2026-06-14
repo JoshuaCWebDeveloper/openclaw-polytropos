@@ -46,28 +46,14 @@ Large efforts that will span multiple pull requests should get a dedicated `feat
 2. Base project pull request branches on that `feature/<project-name>` branch.
 3. Target those pull requests at the feature branch until the larger effort is ready to merge to `master`.
 
-## Release validation before merge
+## Releasing PRs for Validation
 
-Substantial pull requests will often need to be tested by releasing them before they are merged.
+Pull requests will often need to be tested by releasing them before they are merged. Follow the "Release PR" procedure:
 
 1. Leave the pull request open.
 2. Check out the current `release/YYYY.M.D` branch.
 3. Merge the pull request branch into that release branch.
-4. Build and validate on the release branch.
-5. Follow the release procedure from the release branch.
-6. Verify the released change in the running environment.
-7. Merge the original pull request into `master` only after release validation succeeds.
-
-## Release validation example
-
-```bash
-git fetch origin
-git checkout release/YYYY.M.D
-git pull --ff-only origin release/YYYY.M.D
-git merge --no-ff origin/<type>/<short-description>
-git push origin release/YYYY.M.D
-node scripts/polytropos-release.mjs release
-```
+4. Follow the release procedure from the release branch.
 
 ## Rules
 
