@@ -81,6 +81,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           install-bun: "false"
+          install-deps: "false"
 
       - name: Runner resources
         run: |
