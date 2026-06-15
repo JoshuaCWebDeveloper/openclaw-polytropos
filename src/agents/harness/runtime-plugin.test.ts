@@ -3,6 +3,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 
 const mocks = vi.hoisted(() => ({
   ensurePluginRegistryLoaded: vi.fn(),
+  getCurrentPluginMetadataSnapshot: vi.fn(),
   resolveActivatableProviderOwnerPluginIds: vi.fn(),
   resolveBundledProviderCompatPluginIds: vi.fn(),
   resolveOwningPluginIdsForProvider: vi.fn(),
@@ -10,6 +11,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../plugins/runtime/runtime-registry-loader.js", () => ({
   ensurePluginRegistryLoaded: mocks.ensurePluginRegistryLoaded,
+}));
+
+vi.mock("../../plugins/current-plugin-metadata-snapshot.js", () => ({
+  getCurrentPluginMetadataSnapshot: mocks.getCurrentPluginMetadataSnapshot,
 }));
 
 vi.mock("../../plugins/providers.js", () => ({
@@ -24,9 +29,11 @@ describe("ensureSelectedAgentHarnessPlugin", () => {
 
   beforeEach(async () => {
     mocks.ensurePluginRegistryLoaded.mockReset();
+    mocks.getCurrentPluginMetadataSnapshot.mockReset();
     mocks.resolveActivatableProviderOwnerPluginIds.mockReset();
     mocks.resolveBundledProviderCompatPluginIds.mockReset();
     mocks.resolveOwningPluginIdsForProvider.mockReset();
+    mocks.getCurrentPluginMetadataSnapshot.mockReturnValue(undefined);
     mocks.resolveOwningPluginIdsForProvider.mockImplementation(
       ({ provider }: { provider: string }) => (provider === "openai" ? ["openai"] : undefined),
     );
@@ -88,6 +95,38 @@ describe("ensureSelectedAgentHarnessPlugin", () => {
         scope: "all",
         workspaceDir: "/tmp/workspace",
         onlyPluginIds: ["codex", "openai"],
+      }),
+    );
+  });
+
+  it("preserves startup-scoped plugins when cold-loading the Codex harness runtime", async () => {
+    mocks.getCurrentPluginMetadataSnapshot.mockReturnValue({
+      startup: {
+        pluginIds: ["channel-context-overlay", "system-prompt-logger"],
+      },
+    });
+
+    await ensureSelectedAgentHarnessPlugin({
+      provider: "openai",
+      modelId: "gpt-5.5",
+      config: {
+        models: {
+          providers: {
+            openai: {
+              baseUrl: "https://api.openai.com/v1",
+              models: [],
+            },
+          },
+        },
+      } as OpenClawConfig,
+      workspaceDir: "/tmp/workspace",
+    });
+
+    expect(mocks.ensurePluginRegistryLoaded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "all",
+        workspaceDir: "/tmp/workspace",
+        onlyPluginIds: ["codex", "openai", "channel-context-overlay", "system-prompt-logger"],
       }),
     );
   });
