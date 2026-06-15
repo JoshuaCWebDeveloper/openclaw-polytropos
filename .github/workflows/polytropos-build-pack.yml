@@ -96,6 +96,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
+        env:
+          OPENCLAW_TSDOWN_HEARTBEAT_MS: "30000"
+          OPENCLAW_TSDOWN_TIMEOUT_MS: "1800000"
+          OPENCLAW_TSGO_HEARTBEAT_MS: "30000"
+          OPENCLAW_TSGO_TIMEOUT_MS: "1800000"
         run: pnpm build
 
       - name: Build Control UI
