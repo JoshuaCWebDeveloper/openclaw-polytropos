@@ -812,10 +812,18 @@ export async function runCodexAppServerAttempt(
       heartbeatCollaborationInstructions:
         workspaceBootstrapContext.heartbeatCollaborationInstructions,
     }).settings.developer_instructions ?? undefined;
+  let codexTurnDeveloperInstructionsHookResult:
+    | {
+        developerInstructions?: string;
+        prependDeveloperInstructions?: string;
+        appendDeveloperInstructions?: string;
+      }
+    | undefined;
   const resolveCodexTurnCollaborationDeveloperInstructions = async () => {
     const baseCollaborationDeveloperInstructions =
       buildBaseCodexTurnCollaborationDeveloperInstructions();
     if (!hookRunner?.hasHooks("before_turn_developer_instructions")) {
+      codexTurnDeveloperInstructionsHookResult = undefined;
       return baseCollaborationDeveloperInstructions;
     }
     const result = await hookRunner.runBeforeTurnDeveloperInstructions(
@@ -824,6 +832,7 @@ export async function runCodexAppServerAttempt(
       },
       hookContext,
     );
+    codexTurnDeveloperInstructionsHookResult = result ?? undefined;
     if (!result) {
       return baseCollaborationDeveloperInstructions;
     }
@@ -852,6 +861,12 @@ export async function runCodexAppServerAttempt(
     joinPresentSections(
       promptBuild.developerInstructions,
       codexTurnCollaborationDeveloperInstructions,
+    );
+  const buildThreadStartupDeveloperInstructions = () =>
+    joinPresentSections(
+      promptBuild.developerInstructions,
+      codexTurnDeveloperInstructionsHookResult?.prependDeveloperInstructions,
+      codexTurnDeveloperInstructionsHookResult?.appendDeveloperInstructions,
     );
   const rebuildCodexPromptBuildFromCurrentProjection = async () => {
     promptBuild = await buildPromptFromCurrentInputs();
@@ -967,7 +982,7 @@ export async function runCodexAppServerAttempt(
     const hadInactiveThreadBootstrapBinding = isInactiveThreadBootstrapBinding(startupBinding);
     const projectedTurnTokens = estimateCodexAppServerProjectedTurnTokens({
       prompt: codexTurnPromptText,
-      developerInstructions: buildRenderedCodexDeveloperInstructions(),
+      developerInstructions: buildThreadStartupDeveloperInstructions(),
     });
     startupBinding = await rotateOversizedCodexAppServerStartupBinding({
       binding: startupBinding,
@@ -1111,7 +1126,7 @@ export async function runCodexAppServerAttempt(
       effectiveWorkspace,
       effectiveCwd,
       dynamicTools: toolBridge.specs,
-      developerInstructions: promptBuild.developerInstructions,
+      developerInstructions: buildThreadStartupDeveloperInstructions(),
       buildFinalConfigPatch: buildNativeHookRelayFinalConfigPatch,
       bundleMcpThreadConfig,
       nativeToolSurfaceEnabled,

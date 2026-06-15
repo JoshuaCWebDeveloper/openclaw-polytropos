@@ -1717,7 +1717,7 @@ describe("runCodexAppServerAttempt", () => {
     ]);
   });
 
-  it("applies before_turn_developer_instructions only to Codex turn collaboration instructions", async () => {
+  it("applies before_turn_developer_instructions to Codex thread startup and turn collaboration instructions", async () => {
     const beforeTurnDeveloperInstructions = vi.fn(async () => ({
       appendDeveloperInstructions: "appended turn instructions",
     }));
@@ -1754,7 +1754,7 @@ describe("runCodexAppServerAttempt", () => {
 
     const threadStart = harness.requests.find((request) => request.method === "thread/start");
     const threadStartParams = threadStart?.params as { developerInstructions?: string } | undefined;
-    expect(threadStartParams?.developerInstructions).not.toContain("appended turn instructions");
+    expect(threadStartParams?.developerInstructions).toContain("appended turn instructions");
 
     const turnStart = harness.requests.find((request) => request.method === "turn/start");
     const turnStartParams = turnStart?.params as
