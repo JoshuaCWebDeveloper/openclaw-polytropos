@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectPreparedPrepackErrors,
   resolvePrepackCommandTimeoutMs,
+  resolvePrepackUsePreparedArtifacts,
   runPrepackCommand,
 } from "../scripts/openclaw-prepack.ts";
 
@@ -63,5 +64,17 @@ describe("resolvePrepackCommandTimeoutMs", () => {
         expected,
       );
     }
+  });
+});
+
+describe("resolvePrepackUsePreparedArtifacts", () => {
+  it("only enables prepared artifact mode for explicit 1", () => {
+    expect(
+      resolvePrepackUsePreparedArtifacts({ OPENCLAW_PREPACK_USE_PREPARED_ARTIFACTS: "1" }),
+    ).toBe(true);
+    expect(
+      resolvePrepackUsePreparedArtifacts({ OPENCLAW_PREPACK_USE_PREPARED_ARTIFACTS: "true" }),
+    ).toBe(false);
+    expect(resolvePrepackUsePreparedArtifacts({})).toBe(false);
   });
 });

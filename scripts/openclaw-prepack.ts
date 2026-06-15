@@ -110,6 +110,10 @@ export function resolvePrepackCommandTimeoutMs(env: NodeJS.ProcessEnv = process.
   );
 }
 
+export function resolvePrepackUsePreparedArtifacts(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.OPENCLAW_PREPACK_USE_PREPARED_ARTIFACTS === "1";
+}
+
 export function runPrepackCommand(
   command: string,
   args: string[],
@@ -154,8 +158,12 @@ async function writeDistInventory(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  runPnpm(["build"]);
-  runPnpm(["ui:build"]);
+  if (resolvePrepackUsePreparedArtifacts()) {
+    console.error("prepack: using prepared artifacts mode.");
+  } else {
+    runPnpm(["build"]);
+    runPnpm(["ui:build"]);
+  }
   ensurePreparedArtifacts();
   await writeDistInventory();
   runBuildSmoke();

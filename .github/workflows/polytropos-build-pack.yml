@@ -109,6 +109,8 @@ jobs:
           fi
       - name: Pack
         id: pack
+        env:
+          OPENCLAW_PREPACK_USE_PREPARED_ARTIFACTS: "1"
         run: |
           set -euo pipefail
           pkg=$(node -p "require('./package.json').name")
