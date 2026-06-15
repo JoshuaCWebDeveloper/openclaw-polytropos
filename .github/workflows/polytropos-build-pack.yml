@@ -96,7 +96,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm build
+        run: node scripts/build-all.mjs ciArtifacts
 
       - name: Build Control UI
         run: pnpm ui:build
