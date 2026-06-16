@@ -6,6 +6,9 @@ export function buildInstallCommand(params) {
     "install",
     path.resolve(params.tgzPath),
   ];
+  if (params.baseRef && params.headRef) {
+    args.push("--base-ref", params.baseRef, "--head-ref", params.headRef);
+  }
   if (params.logPath) {
     args.push("--log", params.logPath);
   }

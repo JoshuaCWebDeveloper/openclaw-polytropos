@@ -246,6 +246,33 @@ function computeNextReleaseTag() {
   return `v${ver}+poly.${nextN}`;
 }
 
+function parseReleaseTagPolyNumber(tag) {
+  const match = /^v[^+]+\+poly\.(\d+)$/.exec(tag);
+  return match ? Number(match[1]) : null;
+}
+
+function findPreviousReleaseTag(currentTag) {
+  const currentPoly = parseReleaseTagPolyNumber(currentTag);
+  if (!Number.isFinite(currentPoly)) {
+    return null;
+  }
+  const tags = sh("git", ["tag", "-l", "v*+poly.*"])
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  let best = null;
+  let bestPoly = -1;
+  for (const tag of tags) {
+    const poly = parseReleaseTagPolyNumber(tag);
+    if (!Number.isFinite(poly) || poly >= currentPoly || poly <= bestPoly) {
+      continue;
+    }
+    best = tag;
+    bestPoly = poly;
+  }
+  return best;
+}
+
 function parseArgs(argv) {
   // Supported:
   //   node scripts/polytropos-release.mjs release [--tag v<ver>+poly.<N>] [--repo <owner/repo>] [--workflow <workflow.yml>] [--log <path>]
@@ -257,6 +284,8 @@ function parseArgs(argv) {
   let workflow = null;
   let releaseTag = null;
   let installTgz = null;
+  let baseRef = null;
+  let headRef = null;
 
   if (cmd === "install") {
     installTgz = args[1] || null;
@@ -295,13 +324,31 @@ function parseArgs(argv) {
       i++;
       continue;
     }
+    if (a === "--base-ref") {
+      const v = args[i + 1];
+      if (!v) fail("--base-ref requires a git ref");
+      baseRef = v;
+      i++;
+      continue;
+    }
+    if (a === "--head-ref") {
+      const v = args[i + 1];
+      if (!v) fail("--head-ref requires a git ref");
+      headRef = v;
+      i++;
+      continue;
+    }
     if (a === "--help" || a === "-h") {
-      return { cmd: "--help", logPath, repo, workflow, releaseTag, installTgz };
+      return { cmd: "--help", logPath, repo, workflow, releaseTag, installTgz, baseRef, headRef };
     }
     fail(`unknown argument: ${a}`);
   }
 
-  return { cmd, logPath, repo, workflow, releaseTag, installTgz };
+  if ((baseRef && !headRef) || (!baseRef && headRef)) {
+    fail("install requires both --base-ref and --head-ref together");
+  }
+
+  return { cmd, logPath, repo, workflow, releaseTag, installTgz, baseRef, headRef };
 }
 
 function usage() {
@@ -309,7 +356,7 @@ function usage() {
 
 Usage:
   node scripts/polytropos-release.mjs release [--tag v<ver>+poly.<N>] [--repo <owner/repo>] [--workflow <workflow.yml>] [--log <path>]
-  node scripts/polytropos-release.mjs install <tgz> [--log <path>]
+  node scripts/polytropos-release.mjs install <tgz> [--base-ref <ref> --head-ref <ref>] [--log <path>]
 
 Behavior (single flow):
   - Pushes the release tag to GitHub
@@ -323,7 +370,7 @@ Behavior (single flow):
 `);
 }
 
-async function runInstall({ logStream, tgzPath }) {
+async function runInstall({ logStream, tgzPath, baseRef, headRef }) {
   const resolvedTgzPath = path.resolve(tgzPath);
   if (!fs.existsSync(resolvedTgzPath)) {
     fail(`install tgz does not exist: ${resolvedTgzPath}`);
@@ -371,6 +418,8 @@ async function runInstall({ logStream, tgzPath }) {
     const pluginSyncCommand = buildPostInstallPluginSyncCommand({
       repoRoot: REPO_ROOT,
       installedRoot,
+      baseRef,
+      headRef,
     });
     await shRetry(logStream, "release plugin sync", async () => {
       await shTee(logStream, pluginSyncCommand.cmd, pluginSyncCommand.args, {
@@ -391,6 +440,8 @@ const {
   workflow,
   releaseTag: requestedTag,
   installTgz,
+  baseRef,
+  headRef,
 } = parseArgs(process.argv);
 if (!cmd || cmd === "--help") {
   usage();
@@ -407,7 +458,7 @@ banner(logStream, `Log file: ${logPath}`);
 
 try {
   if (cmd === "install") {
-    await runInstall({ logStream, tgzPath: installTgz });
+    await runInstall({ logStream, tgzPath: installTgz, baseRef, headRef });
   } else {
     const releaseTag = requestedTag ?? computeNextReleaseTag();
     if (!/^v[^+]+\+poly\.\d+$/.test(releaseTag)) {
@@ -420,6 +471,12 @@ try {
     banner(logStream, `GitHub repo: ${ghRepo}`);
     banner(logStream, `Workflow: ${wf}`);
     banner(logStream, `Release tag: ${releaseTag}`);
+    const previousReleaseTag = findPreviousReleaseTag(releaseTag);
+    if (previousReleaseTag) {
+      banner(logStream, `Previous release tag: ${previousReleaseTag}`);
+    } else {
+      banner(logStream, "Previous release tag: none");
+    }
 
     const releaseBranch = assertValidReleaseBranch();
     banner(logStream, `Release branch: ${releaseBranch}`);
@@ -536,6 +593,8 @@ try {
     const installCommand = buildInstallCommand({
       repoRoot: REPO_ROOT,
       tgzPath: currentTgz,
+      baseRef: previousReleaseTag ?? undefined,
+      headRef: releaseTag,
       logPath,
     });
     await shTee(logStream, installCommand.cmd, installCommand.args);

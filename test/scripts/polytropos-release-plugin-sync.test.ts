@@ -11,6 +11,8 @@ describe("polytropos release helpers", () => {
       buildInstallCommand({
         repoRoot,
         tgzPath: "/tmp/openclaw-current.tgz",
+        baseRef: "v2026.6.1+poly.52",
+        headRef: "v2026.6.1+poly.53",
         logPath: "/tmp/polytropos-release.log",
       }),
     ).toEqual({
@@ -19,6 +21,10 @@ describe("polytropos release helpers", () => {
         path.join(repoRoot, "scripts", "polytropos-release.mjs"),
         "install",
         "/tmp/openclaw-current.tgz",
+        "--base-ref",
+        "v2026.6.1+poly.52",
+        "--head-ref",
+        "v2026.6.1+poly.53",
         "--log",
         "/tmp/polytropos-release.log",
       ],
@@ -28,14 +34,26 @@ describe("polytropos release helpers", () => {
   it("runs the release-owned plugin sync helper against the freshly installed package root", () => {
     const repoRoot = "/work/openclaw";
     const installedRoot = "/tmp/npm-prefix/lib/node_modules/openclaw";
-    expect(buildPostInstallPluginSyncCommand({ repoRoot, installedRoot })).toEqual({
+    expect(
+      buildPostInstallPluginSyncCommand({
+        repoRoot,
+        installedRoot,
+        baseRef: "v2026.6.1+poly.52",
+        headRef: "v2026.6.1+poly.53",
+      }),
+    ).toEqual({
       cmd: path.join(repoRoot, "node_modules", ".bin", "tsx"),
-      args: [path.join(repoRoot, "scripts", "polytropos-release-plugin-sync.ts"), installedRoot],
+      args: [
+        path.join(repoRoot, "scripts", "polytropos-release-plugin-sync.ts"),
+        installedRoot,
+        "v2026.6.1+poly.52",
+        "v2026.6.1+poly.53",
+      ],
       cwd: repoRoot,
     });
   });
 
-  it("selects only managed npm installs whose package version differs from the release package version", () => {
+  it("selects managed publishable npm installs when no git range is provided", () => {
     const targets = resolveReleaseManagedNpmPluginTargets({
       repoRoot: process.cwd(),
       installRecords: {
@@ -67,7 +85,13 @@ describe("polytropos release helpers", () => {
       releaseVersion: "2026.6.1",
       specOverride: "@openclaw/codex@2026.6.1",
     });
-    expect(targets.some((entry) => entry.pluginId === "discord")).toBe(false);
+    expect(targets).toContainEqual({
+      pluginId: "discord",
+      packageName: "@openclaw/discord",
+      installedVersion: "2026.6.1",
+      releaseVersion: "2026.6.1",
+      specOverride: "@openclaw/discord@2026.6.1",
+    });
     expect(targets.some((entry) => entry.pluginId === "custom")).toBe(false);
   });
 });
