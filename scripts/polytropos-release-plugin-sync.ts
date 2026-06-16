@@ -11,7 +11,10 @@ import {
   withoutPluginInstallRecords,
 } from "../src/plugins/installed-plugin-index-records.js";
 import { updateNpmInstalledPlugins } from "../src/plugins/update.js";
-import { collectPublishablePluginPackages } from "./lib/plugin-npm-release.ts";
+import {
+  collectChangedExtensionIdsFromGitRange,
+  collectPublishablePluginPackages,
+} from "./lib/plugin-npm-release.ts";
 
 type LoggerLine = { level: "info" | "warn" | "error"; message: string };
 export type ReleasePluginSyncTarget = {
@@ -25,8 +28,17 @@ export type ReleasePluginSyncTarget = {
 export function resolveReleaseManagedNpmPluginTargets(params: {
   repoRoot: string;
   installRecords: Awaited<ReturnType<typeof loadInstalledPluginIndexInstallRecords>>;
+  gitRange?: { baseRef: string; headRef: string };
 }): ReleasePluginSyncTarget[] {
-  const publishablePlugins = collectPublishablePluginPackages(params.repoRoot);
+  const changedExtensionIds = params.gitRange
+    ? collectChangedExtensionIdsFromGitRange({
+        rootDir: params.repoRoot,
+        gitRange: params.gitRange,
+      })
+    : [];
+  const publishablePlugins = collectPublishablePluginPackages(params.repoRoot, {
+    extensionIds: params.gitRange ? changedExtensionIds : undefined,
+  });
   const publishableByPackageName = new Map(
     publishablePlugins.map((plugin) => {
       const installPackageName =
@@ -49,9 +61,6 @@ export function resolveReleaseManagedNpmPluginTargets(params: {
     if (!publishable) {
       continue;
     }
-    if (installedVersion === publishable.version) {
-      continue;
-    }
     targets.push({
       pluginId,
       packageName,
@@ -66,10 +75,12 @@ export function resolveReleaseManagedNpmPluginTargets(params: {
 
 async function main() {
   const installedRoot = process.argv[2];
+  const baseRef = process.argv[3];
+  const headRef = process.argv[4];
   const repoRoot = process.cwd();
   if (!installedRoot) {
     throw new Error(
-      "Usage: node --import tsx scripts/polytropos-release-plugin-sync.ts <installed-openclaw-root>",
+      "Usage: tsx scripts/polytropos-release-plugin-sync.ts <installed-openclaw-root> [baseRef headRef]",
     );
   }
 
@@ -86,6 +97,7 @@ async function main() {
   const targets = resolveReleaseManagedNpmPluginTargets({
     repoRoot,
     installRecords,
+    gitRange: baseRef && headRef ? { baseRef, headRef } : undefined,
   });
   const loggerLines: LoggerLine[] = [];
 
