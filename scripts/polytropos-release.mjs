@@ -15,6 +15,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { buildPostInstallPluginSyncCommand } from "./lib/polytropos-release-plugin-sync.mjs";
 
 async function shRetry(logStream, label, fn, { tries = 5, baseDelayMs = 1000 } = {}) {
   let lastErr = null;
@@ -490,6 +491,16 @@ banner(logStream, "Running Polytropos bundled plugin deps helper...");
     await shTee(logStream, "node", [helperPath]);
   });
   banner(logStream, "Bundled plugin deps helper completed.");
+
+  banner(logStream, "Syncing release-updated installed plugins...");
+  const pluginSyncCommand = buildPostInstallPluginSyncCommand({
+    repoRoot: process.cwd(),
+    installedRoot,
+  });
+  await shRetry(logStream, "release plugin sync", async () => {
+    await shTee(logStream, pluginSyncCommand.cmd, pluginSyncCommand.args);
+  });
+  banner(logStream, "Release plugin sync completed.");
 }
 
 banner(logStream, "Activation required: restart the gateway to run the new code");
