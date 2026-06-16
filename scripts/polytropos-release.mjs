@@ -15,8 +15,12 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildInstallCommand } from "./lib/polytropos-release-install.mjs";
 import { buildPostInstallPluginSyncCommand } from "./lib/polytropos-release-plugin-sync.mjs";
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 
 async function shRetry(logStream, label, fn, { tries = 5, baseDelayMs = 1000 } = {}) {
   let lastErr = null;
@@ -365,11 +369,13 @@ async function runInstall({ logStream, tgzPath }) {
 
     banner(logStream, "Syncing release-updated installed plugins...");
     const pluginSyncCommand = buildPostInstallPluginSyncCommand({
-      repoRoot: process.cwd(),
+      repoRoot: REPO_ROOT,
       installedRoot,
     });
     await shRetry(logStream, "release plugin sync", async () => {
-      await shTee(logStream, pluginSyncCommand.cmd, pluginSyncCommand.args);
+      await shTee(logStream, pluginSyncCommand.cmd, pluginSyncCommand.args, {
+        cwd: pluginSyncCommand.cwd,
+      });
     });
     banner(logStream, "Release plugin sync completed.");
   }
@@ -528,7 +534,7 @@ try {
     lnSfn(tarPath, currentTgz);
     banner(logStream, `Delegating install for staged release artifact ${currentTgz}`);
     const installCommand = buildInstallCommand({
-      repoRoot: process.cwd(),
+      repoRoot: REPO_ROOT,
       tgzPath: currentTgz,
       logPath,
     });
