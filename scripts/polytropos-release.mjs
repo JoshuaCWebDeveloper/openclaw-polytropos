@@ -311,9 +311,9 @@ Behavior (single flow):
   - Pushes the release tag to GitHub
   - Waits for the GitHub Actions workflow run for that tag to complete
   - Downloads the artifact openclaw-tgz-<tag>
-  - Calls install <tgz> to perform the package install steps
-  - On successful install, stages the tarball into ~/polytropos/releases/<tag>.tgz
-  - On successful install, updates previous.tgz then current.tgz (symlink-safe)
+  - Stages it into ~/polytropos/releases/<tag>.tgz
+  - Updates previous.tgz then current.tgz (symlink-safe)
+  - Calls install <tgz> to perform the final package install steps
   - install <tgz> performs the global install, bundled deps helper, and managed plugin sync
   - Does not activate/restart the gateway
 `);
@@ -491,14 +491,6 @@ try {
       }
     }
 
-    banner(logStream, `Delegating install for release artifact ${tgzPath}`);
-    const installCommand = buildInstallCommand({
-      repoRoot: process.cwd(),
-      tgzPath,
-      logPath,
-    });
-    await shTee(logStream, installCommand.cmd, installCommand.args);
-
     const tarPath = path.join(relRoot, `${releaseTag}.tgz`);
     if (fs.existsSync(tarPath)) {
       banner(logStream, `Tarball already staged: ${tarPath}`);
@@ -534,7 +526,14 @@ try {
 
     banner(logStream, `Setting current.tgz -> ${tarPath}`);
     lnSfn(tarPath, currentTgz);
-    banner(logStream, "Release installed and staged (not activated).");
+    banner(logStream, `Delegating install for staged release artifact ${currentTgz}`);
+    const installCommand = buildInstallCommand({
+      repoRoot: process.cwd(),
+      tgzPath: currentTgz,
+      logPath,
+    });
+    await shTee(logStream, installCommand.cmd, installCommand.args);
+    banner(logStream, "Release staged and install delegated (not activated).");
   }
 } finally {
   logStream.end();
