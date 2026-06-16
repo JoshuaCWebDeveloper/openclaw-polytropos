@@ -15,10 +15,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import {
-  buildInstallCommand,
-  findLatestStagedTarballForVersion,
-} from "./lib/polytropos-release-install.mjs";
+import { buildInstallCommand } from "./lib/polytropos-release-install.mjs";
 import { buildPostInstallPluginSyncCommand } from "./lib/polytropos-release-plugin-sync.mjs";
 
 async function shRetry(logStream, label, fn, { tries = 5, baseDelayMs = 1000 } = {}) {
@@ -315,8 +312,8 @@ Behavior (single flow):
   - Waits for the GitHub Actions workflow run for that tag to complete
   - Downloads the artifact openclaw-tgz-<tag>
   - Stages it into ~/polytropos/releases/<tag>.tgz
-  - Calls install <version> to activate the staged release
-  - install <version> updates previous.tgz then current.tgz (symlink-safe)
+  - Updates previous.tgz then current.tgz (symlink-safe)
+  - Calls install <version> to perform the package install steps
   - install <version> performs the global install, bundled deps helper, and managed plugin sync
   - Does not activate/restart the gateway
 `);
@@ -331,34 +328,19 @@ async function runInstall({ logStream, version }) {
   fs.mkdirSync(relRoot, { recursive: true });
   assertReleaseStoreConsistent(relRoot);
 
-  const tarPath = findLatestStagedTarballForVersion({
-    relRoot,
-    version,
-  });
-  if (!tarPath) {
-    fail(`no staged release tarball found for version ${version} in ${relRoot}`);
-  }
-
-  banner(logStream, `Installing staged version ${version} from ${tarPath}`);
-
   const currentTgz = path.join(relRoot, "current.tgz");
-  assertSymlink(currentTgz, "current.tgz");
-  const previousTgz = path.join(relRoot, "previous.tgz");
-  assertSymlink(previousTgz, "previous.tgz");
-  const currentTarget = readlinkAbs(currentTgz);
-  if (currentTarget) {
-    banner(logStream, `Setting previous.tgz -> ${currentTarget}`);
-    lnSfn(currentTarget, previousTgz);
-  } else {
-    banner(
-      logStream,
-      "No existing current.tgz symlink; setting previous.tgz to this tarball as bootstrap",
-    );
-    lnSfn(tarPath, previousTgz);
+  if (!fs.existsSync(currentTgz)) {
+    fail(`current.tgz does not exist in ${relRoot}; run release before install`);
   }
-
-  banner(logStream, `Setting current.tgz -> ${tarPath}`);
-  lnSfn(tarPath, currentTgz);
+  assertSymlink(currentTgz, "current.tgz");
+  const info = tgzInternalVersion(currentTgz);
+  if (info.name !== "openclaw") {
+    fail(`unexpected package name in current.tgz: ${info.name}`);
+  }
+  if (info.version !== version) {
+    fail(`current.tgz version ${info.version} != requested install version ${version}`);
+  }
+  banner(logStream, `Installing current.tgz for staged version ${version}`);
 
   const prefix = getGlobalPrefix();
   banner(logStream, `Installing globally into prefix: ${prefix}`);
@@ -531,6 +513,24 @@ try {
     }
 
     banner(logStream, `Staged tarball: ${tarPath}`);
+    const currentTgz = path.join(relRoot, "current.tgz");
+    assertSymlink(currentTgz, "current.tgz");
+    const previousTgz = path.join(relRoot, "previous.tgz");
+    assertSymlink(previousTgz, "previous.tgz");
+    const currentTarget = readlinkAbs(currentTgz);
+    if (currentTarget) {
+      banner(logStream, `Setting previous.tgz -> ${currentTarget}`);
+      lnSfn(currentTarget, previousTgz);
+    } else {
+      banner(
+        logStream,
+        "No existing current.tgz symlink; setting previous.tgz to this tarball as bootstrap",
+      );
+      lnSfn(tarPath, previousTgz);
+    }
+
+    banner(logStream, `Setting current.tgz -> ${tarPath}`);
+    lnSfn(tarPath, currentTgz);
     banner(logStream, `Delegating staged install for version ${expectedVersion}`);
     const installCommand = buildInstallCommand({
       repoRoot: process.cwd(),
