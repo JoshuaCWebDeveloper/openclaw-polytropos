@@ -245,19 +245,19 @@ function computeNextReleaseTag() {
 function parseArgs(argv) {
   // Supported:
   //   node scripts/polytropos-release.mjs release [--tag v<ver>+poly.<N>] [--repo <owner/repo>] [--workflow <workflow.yml>] [--log <path>]
-  //   node scripts/polytropos-release.mjs install <version> [--log <path>]
+  //   node scripts/polytropos-release.mjs install <tgz> [--log <path>]
   const args = argv.slice(2);
   const cmd = args[0] || "";
   let logPath = process.env.POLYTROPOS_RELEASE_LOG || defaultLogPath();
   let repo = null;
   let workflow = null;
   let releaseTag = null;
-  let version = null;
+  let installTgz = null;
 
   if (cmd === "install") {
-    version = args[1] || null;
-    if (!version) {
-      fail("install requires <version>");
+    installTgz = args[1] || null;
+    if (!installTgz) {
+      fail("install requires <tgz>");
     }
   }
 
@@ -292,12 +292,12 @@ function parseArgs(argv) {
       continue;
     }
     if (a === "--help" || a === "-h") {
-      return { cmd: "--help", logPath, repo, workflow, releaseTag, version };
+      return { cmd: "--help", logPath, repo, workflow, releaseTag, installTgz };
     }
     fail(`unknown argument: ${a}`);
   }
 
-  return { cmd, logPath, repo, workflow, releaseTag, version };
+  return { cmd, logPath, repo, workflow, releaseTag, installTgz };
 }
 
 function usage() {
@@ -305,42 +305,30 @@ function usage() {
 
 Usage:
   node scripts/polytropos-release.mjs release [--tag v<ver>+poly.<N>] [--repo <owner/repo>] [--workflow <workflow.yml>] [--log <path>]
-  node scripts/polytropos-release.mjs install <version> [--log <path>]
+  node scripts/polytropos-release.mjs install <tgz> [--log <path>]
 
 Behavior (single flow):
   - Pushes the release tag to GitHub
   - Waits for the GitHub Actions workflow run for that tag to complete
   - Downloads the artifact openclaw-tgz-<tag>
-  - Stages it into ~/polytropos/releases/<tag>.tgz
-  - Updates previous.tgz then current.tgz (symlink-safe)
-  - Calls install <version> to perform the package install steps
-  - install <version> performs the global install, bundled deps helper, and managed plugin sync
+  - Calls install <tgz> to perform the package install steps
+  - On successful install, stages the tarball into ~/polytropos/releases/<tag>.tgz
+  - On successful install, updates previous.tgz then current.tgz (symlink-safe)
+  - install <tgz> performs the global install, bundled deps helper, and managed plugin sync
   - Does not activate/restart the gateway
 `);
 }
 
-async function runInstall({ logStream, version }) {
-  if (!/^\d+\.\d+\.\d+$/.test(version)) {
-    fail(`invalid install version: ${version} (expected X.Y.Z)`);
+async function runInstall({ logStream, tgzPath }) {
+  const resolvedTgzPath = path.resolve(tgzPath);
+  if (!fs.existsSync(resolvedTgzPath)) {
+    fail(`install tgz does not exist: ${resolvedTgzPath}`);
   }
-
-  const relRoot = releasesRoot();
-  fs.mkdirSync(relRoot, { recursive: true });
-  assertReleaseStoreConsistent(relRoot);
-
-  const currentTgz = path.join(relRoot, "current.tgz");
-  if (!fs.existsSync(currentTgz)) {
-    fail(`current.tgz does not exist in ${relRoot}; run release before install`);
-  }
-  assertSymlink(currentTgz, "current.tgz");
-  const info = tgzInternalVersion(currentTgz);
+  const info = tgzInternalVersion(resolvedTgzPath);
   if (info.name !== "openclaw") {
-    fail(`unexpected package name in current.tgz: ${info.name}`);
+    fail(`unexpected package name in install tgz: ${info.name}`);
   }
-  if (info.version !== version) {
-    fail(`current.tgz version ${info.version} != requested install version ${version}`);
-  }
-  banner(logStream, `Installing current.tgz for staged version ${version}`);
+  banner(logStream, `Installing tgz ${resolvedTgzPath} (version ${info.version})`);
 
   const prefix = getGlobalPrefix();
   banner(logStream, `Installing globally into prefix: ${prefix}`);
@@ -355,7 +343,7 @@ async function runInstall({ logStream, version }) {
   }
 
   await shRetry(logStream, "npm install -g", async () => {
-    await shTee(logStream, "npm", ["install", "-g", "--prefix", prefix, currentTgz]);
+    await shTee(logStream, "npm", ["install", "-g", "--prefix", prefix, resolvedTgzPath]);
   });
 
   banner(logStream, "Running Polytropos bundled plugin deps helper...");
@@ -387,10 +375,17 @@ async function runInstall({ logStream, version }) {
   }
 
   banner(logStream, "Activation required: restart the gateway to run the new code");
-  banner(logStream, `Install completed for version ${version} (not activated).`);
+  banner(logStream, `Install completed for version ${info.version} (not activated).`);
 }
 
-const { cmd, logPath, repo, workflow, releaseTag: requestedTag, version } = parseArgs(process.argv);
+const {
+  cmd,
+  logPath,
+  repo,
+  workflow,
+  releaseTag: requestedTag,
+  installTgz,
+} = parseArgs(process.argv);
 if (!cmd || cmd === "--help") {
   usage();
   process.exit(0);
@@ -406,7 +401,7 @@ banner(logStream, `Log file: ${logPath}`);
 
 try {
   if (cmd === "install") {
-    await runInstall({ logStream, version });
+    await runInstall({ logStream, tgzPath: installTgz });
   } else {
     const releaseTag = requestedTag ?? computeNextReleaseTag();
     if (!/^v[^+]+\+poly\.\d+$/.test(releaseTag)) {
@@ -496,6 +491,14 @@ try {
       }
     }
 
+    banner(logStream, `Delegating install for release artifact ${tgzPath}`);
+    const installCommand = buildInstallCommand({
+      repoRoot: process.cwd(),
+      tgzPath,
+      logPath,
+    });
+    await shTee(logStream, installCommand.cmd, installCommand.args);
+
     const tarPath = path.join(relRoot, `${releaseTag}.tgz`);
     if (fs.existsSync(tarPath)) {
       banner(logStream, `Tarball already staged: ${tarPath}`);
@@ -531,14 +534,7 @@ try {
 
     banner(logStream, `Setting current.tgz -> ${tarPath}`);
     lnSfn(tarPath, currentTgz);
-    banner(logStream, `Delegating staged install for version ${expectedVersion}`);
-    const installCommand = buildInstallCommand({
-      repoRoot: process.cwd(),
-      version: expectedVersion,
-      logPath,
-    });
-    await shTee(logStream, installCommand.cmd, installCommand.args);
-    banner(logStream, "Release staged and install delegated (not activated).");
+    banner(logStream, "Release installed and staged (not activated).");
   }
 } finally {
   logStream.end();

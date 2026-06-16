@@ -5,12 +5,12 @@ import { buildPostInstallPluginSyncCommand } from "../../scripts/lib/polytropos-
 import { resolveReleaseManagedNpmPluginTargets } from "../../scripts/polytropos-release-plugin-sync.ts";
 
 describe("polytropos release helpers", () => {
-  it("builds an install command that delegates back into the release script", () => {
+  it("builds an install command that delegates back into the release script with a tgz path", () => {
     const repoRoot = "/work/openclaw";
     expect(
       buildInstallCommand({
         repoRoot,
-        version: "2026.6.1",
+        tgzPath: "/tmp/openclaw-current.tgz",
         logPath: "/tmp/polytropos-release.log",
       }),
     ).toEqual({
@@ -18,7 +18,7 @@ describe("polytropos release helpers", () => {
       args: [
         path.join(repoRoot, "scripts", "polytropos-release.mjs"),
         "install",
-        "2026.6.1",
+        "/tmp/openclaw-current.tgz",
         "--log",
         "/tmp/polytropos-release.log",
       ],

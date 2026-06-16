@@ -4,7 +4,7 @@ export function buildInstallCommand(params) {
   const args = [
     path.join(params.repoRoot, "scripts", "polytropos-release.mjs"),
     "install",
-    params.version,
+    path.resolve(params.tgzPath),
   ];
   if (params.logPath) {
     args.push("--log", params.logPath);
