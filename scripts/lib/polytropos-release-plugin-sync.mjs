@@ -2,12 +2,11 @@ import path from "node:path";
 
 export function buildPostInstallPluginSyncCommand(params) {
   return {
-    cmd: "node",
+    cmd: path.join(params.repoRoot, "node_modules", ".bin", "tsx"),
     args: [
-      "--import",
-      "tsx",
       path.join(params.repoRoot, "scripts", "polytropos-release-plugin-sync.ts"),
       path.resolve(params.installedRoot),
     ],
+    cwd: params.repoRoot,
   };
 }

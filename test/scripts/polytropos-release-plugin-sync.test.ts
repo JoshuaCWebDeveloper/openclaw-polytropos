@@ -29,13 +29,9 @@ describe("polytropos release helpers", () => {
     const repoRoot = "/work/openclaw";
     const installedRoot = "/tmp/npm-prefix/lib/node_modules/openclaw";
     expect(buildPostInstallPluginSyncCommand({ repoRoot, installedRoot })).toEqual({
-      cmd: "node",
-      args: [
-        "--import",
-        "tsx",
-        path.join(repoRoot, "scripts", "polytropos-release-plugin-sync.ts"),
-        installedRoot,
-      ],
+      cmd: path.join(repoRoot, "node_modules", ".bin", "tsx"),
+      args: [path.join(repoRoot, "scripts", "polytropos-release-plugin-sync.ts"), installedRoot],
+      cwd: repoRoot,
     });
   });
 
