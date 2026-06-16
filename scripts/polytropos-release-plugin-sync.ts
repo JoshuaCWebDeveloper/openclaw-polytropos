@@ -123,6 +123,7 @@ async function main() {
   const result = await updateNpmInstalledPlugins({
     config: withPluginInstallRecords(cfg, installRecords),
     pluginIds: targets.map((entry) => entry.pluginId),
+    forceReinstallPluginIds: new Set(targets.map((entry) => entry.pluginId)),
     specOverrides: Object.fromEntries(
       targets.map((entry) => [entry.pluginId, entry.specOverride] as const),
     ),
