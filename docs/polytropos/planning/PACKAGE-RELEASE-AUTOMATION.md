@@ -27,11 +27,10 @@ Make Polytropos core and every tracked Polytropos plugin follow one release auto
 
 ### Plugins
 
-- Live plugin source repo: sibling repo `../polytropos-plugins`
-- Current plugin packaging/deploy flow in that repo:
-  - build plugin artifact into `dist/plugins/<id>`
-  - deploy into `~/.openclaw/extensions/<id>`
-- Current plugin npm release planning code in this repo (`scripts/lib/plugin-npm-release.ts`) targets `extensions/*` inside `openclaw-polytropos`, not the separate `polytropos-plugins` repo
+- Current plugin npm release planning code in this repo (`scripts/lib/plugin-npm-release.ts`) already provides a useful model for:
+  - discovering publishable packages from package metadata
+  - selecting changed packages from source paths
+  - skipping already-published versions
 
 ## Proposed Model
 
@@ -111,28 +110,7 @@ Desired flow:
 
 ## Main Issues With This Proposal
 
-### 1) There are two different package families in play
-
-The existing `plugin-npm-release` logic in `openclaw-polytropos` is for OpenClaw’s publishable extension/plugin package flow. This proposal is about a Polytropos-level package workflow that should cover core and Polytropos-managed plugin packages.
-
-Consequence:
-
-- the current release logic may still be reusable in parts
-- but the workflow likely needs a higher-level package planner that understands both package families instead of assuming one package model
-
-### 2) The plugin packages are not publish-ready yet
-
-In `polytropos-plugins`, current packages are mostly:
-
-- `private: true`
-- inconsistently versioned
-- not consistently annotated for registry publishing
-
-Consequence:
-
-- automation will be fragile until package metadata is normalized
-
-### 3) The workflow-local tracked package list should stay minimal
+### 1) The workflow-local tracked package list should stay minimal
 
 The tracked package list should be strongly tied to the workflow and contain package names only.
 
@@ -141,7 +119,7 @@ Consequence:
 - the workflow should derive package metadata from existing package.json/code layout instead of introducing a second source of truth
 - any proposal that turns this into a richer manifest is probably over-designed
 
-### 4) Package-scoped diffing needs a reliable way to derive relevant source directories
+### 2) Package-scoped diffing needs a reliable way to derive relevant source directories
 
 If "changes" means changes to the relevant source directories, the workflow needs a reliable way to derive those directories from a package name.
 
@@ -150,7 +128,16 @@ Consequence:
 - simple package-directory rules may be enough
 - but any shared/generated source paths that matter need to be accounted for, or the workflow will miss publish triggers
 
-### 5) `scripts/polytropos-release.mjs` still needs to change downstream
+### 3) Existing package release logic should be reused as much as possible
+
+This repo already has useful release-selection logic for publishable packages.
+
+Consequence:
+
+- the workflow should reuse existing package release logic wherever possible
+- only the missing Polytropos-specific pieces should be added
+
+### 4) `scripts/polytropos-release.mjs` still needs to change downstream
 
 The current core release script is built around GitHub Actions artifact discovery and download, not registry package resolution.
 
@@ -159,7 +146,7 @@ Consequence:
 - even with GitHub Packages as source of truth, downstream still needs a clean handoff artifact
 - the release script must move from "download one core artifact from one run" to "consume the workflow’s package/artifact list"
 
-### 6) Plugin install semantics still need one chosen standard
+### 5) Host-side plugin install/update logic is the main place that needs source-aware behavior
 
 There are currently two overlapping models:
 
@@ -170,15 +157,6 @@ Consequence:
 
 - "download plugin packages and install them in the expected way" is still underspecified until one standard path is chosen for Polytropos-managed plugins
 
-### 7) Cross-repo release orchestration will get more complex
-
-The planning repo is `openclaw-polytropos`, but some tracked packages live in `polytropos-plugins`.
-
-Consequence:
-
-- release automation needs cross-repo package discovery, diffing, build, and metadata collection
-- that is workable, but it is not a single-worktree problem anymore
-
 ## Recommendation
 
 The direction makes sense, but the first milestone should be the package inventory contract, not the registry backend.
@@ -187,7 +165,7 @@ Recommended order:
 
 1. define the workflow-local tracked package name list
 2. derive package metadata and source directories from existing code/package metadata
-3. normalize plugin packages in `polytropos-plugins`
+3. reuse existing package release logic wherever possible
 4. emit the full workflow package/artifact list from release automation
 5. update downstream installer to consume that workflow output
 
