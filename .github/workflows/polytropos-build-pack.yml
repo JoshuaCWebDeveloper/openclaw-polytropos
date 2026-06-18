@@ -97,6 +97,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
+        env:
+          OPENCLAW_BUILD_ALL_NO_PNPM: "1"
         run: node scripts/build-all.mjs ciArtifacts
 
       - name: Build Control UI
