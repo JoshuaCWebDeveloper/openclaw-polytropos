@@ -145,16 +145,13 @@ Consequence:
 - for plugin packages, the simplest default is to resolve the package by matching `extensions/*/package.json` and then use that extension directory as the diff root
 - if any packages also depend on shared/generated paths that should trigger publishes, those exceptions need to be documented explicitly
 
-### 2) Host-side plugin install/update logic is the main place that needs source-aware behavior
+### 2) Host-side plugin install/update behavior still needs to be stated concretely
 
-There are currently two overlapping models:
-
-- deployed plugin payloads under `~/.openclaw/extensions`
-- managed npm-installed plugins through OpenClaw plugin install/update flows
+The proposal says downstream will download plugin packages and install them "in the expected way", but that expected way should be stated explicitly in terms of the actual host-side install/update path.
 
 Consequence:
 
-- "download plugin packages and install them in the expected way" is still underspecified until one standard path is chosen for Polytropos-managed plugins
+- the doc should name the concrete host-side install/update flow that Polytropos-managed plugin packages will use
 
 ## Recommendation
 
