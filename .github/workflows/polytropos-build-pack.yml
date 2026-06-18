@@ -160,13 +160,7 @@ jobs:
 
           core_artifact_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts/${artifact_id}"
           tracked_plugins="$(jq -r '.[] | select(. != "openclaw")' .github/polytropos-tracked-packages.json | paste -sd, -)"
-          previous_release_tag="$(
-            git tag -l 'v*+poly.*' \
-              | grep -Fxv "${RELEASE_TAG}" \
-              | sort -V \
-              | tail -n 1
-            || true
-          )"
+          previous_release_tag="$(git tag -l 'v*+poly.*' | grep -Fxv "${RELEASE_TAG}" | sort -V | tail -n 1 || true)"
 
           inventory_args=(
             --tracked-packages-file .github/polytropos-tracked-packages.json
