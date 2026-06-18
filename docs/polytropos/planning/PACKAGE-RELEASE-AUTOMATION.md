@@ -77,6 +77,19 @@ For each tracked package:
 4. Build/publish only if changed
 5. Otherwise carry forward the already-published package artifact reference
 
+Default implementation for plugin packages:
+
+- scan `extensions/*/package.json`
+- find the package whose `package.json.name` matches the tracked package name
+- use that extension directory as the default diff root
+- if needed, reuse the same path-to-extension matching pattern already used by `scripts/lib/changed-extensions.mjs`
+
+So the simplest default rule is:
+
+- tracked package name resolves to one extension package
+- that extension directory is the diff root
+- directory name can be used as a fallback when package-name matching is not needed
+
 ### 4) Core as a tracked published package
 
 Apply the same model to core:
@@ -114,14 +127,14 @@ Desired flow:
 
 ## Main Issues With This Proposal
 
-### 1) Package-scoped diffing needs a reliable way to derive relevant source directories
+### 1) Package-scoped diffing needs a clear default resolution rule
 
 If "changes" means changes to the relevant source directories, the workflow needs a reliable way to derive those directories from a package name.
 
 Consequence:
 
-- simple package-directory rules may be enough
-- but any shared/generated source paths that matter need to be accounted for, or the workflow will miss publish triggers
+- for plugin packages, the simplest default is to resolve the package by matching `extensions/*/package.json` and then use that extension directory as the diff root
+- if any packages also depend on shared/generated paths that should trigger publishes, those exceptions need to be documented explicitly
 
 ### 2) Existing package release logic should be reused as much as possible
 
