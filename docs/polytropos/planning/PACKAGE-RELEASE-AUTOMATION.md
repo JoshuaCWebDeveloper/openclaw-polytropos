@@ -47,6 +47,11 @@ Design rule:
 - it is strongly tied to the workflow
 - it does not become a second metadata registry
 
+Recommended storage:
+
+- keep it in a small adjacent workflow-owned file that the workflow reads, rather than inline YAML
+- that keeps the list easy to edit without mixing package names into workflow logic
+
 Everything else should be derived from existing repo/package metadata and code layout:
 
 - package path
@@ -90,6 +95,19 @@ So the simplest default rule is:
 - that extension directory is the diff root
 - directory name can be used as a fallback when package-name matching is not needed
 
+First-pass shared/global exception rule for plugin packages:
+
+- if shared plugin packaging/runtime helper inputs change, republish all tracked plugin packages
+
+Known shared/generated paths worth treating that way:
+
+- `scripts/lib/plugin-npm-runtime-build.mjs`
+- `scripts/lib/plugin-npm-package-manifest.mjs`
+- `scripts/lib/plugin-npm-runtime-assets.mjs`
+- `scripts/lib/static-extension-assets.mjs`
+- `scripts/lib/bundled-plugin-build-entries.mjs`
+- `src/config/bundled-channel-config-metadata.generated.ts`
+
 ### 4) Core as a tracked published package
 
 Apply the same model to core:
@@ -98,6 +116,11 @@ Apply the same model to core:
 - publish it to GitHub Packages
 - only publish when relevant core source paths changed since the prior published Polytropos release for core
 - keep the workflow output as a full package inventory, not just one tarball
+
+Default safe rule for core:
+
+- it is acceptable to over-include core source paths
+- for the first pass, use a broad core scope rather than trying to minimize it aggressively
 
 ### 5) Full package inventory artifact
 
@@ -108,7 +131,7 @@ Each workflow run should emit one canonical inventory artifact, e.g. `polytropos
 - base version used for diffing
 - changed in this run
 - published in this run
-- install/download locator
+- direct artifact download URL
 - integrity metadata
 
 Unchanged packages should still appear in the inventory with their latest known installable locator.
@@ -128,6 +151,7 @@ Desired flow:
 Implementation consequence:
 
 - `scripts/polytropos-release.mjs` will need to consume the workflow’s package/artifact list instead of assuming a single core artifact download path
+- a local staging/cache directory like `~/polytropos/releases/plugins` is a reasonable default for downloaded plugin artifacts before install
 
 Implementation rule:
 
