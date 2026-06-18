@@ -125,6 +125,10 @@ Desired flow:
 4. Resolve plugin package locators from inventory
 5. Install/update plugins via the chosen standard plugin-install path
 
+Implementation consequence:
+
+- `scripts/polytropos-release.mjs` will need to consume the workflow’s package/artifact list instead of assuming a single core artifact download path
+
 ## Main Issues With This Proposal
 
 ### 1) Package-scoped diffing needs a clear default resolution rule
@@ -145,16 +149,7 @@ Consequence:
 - the workflow should reuse existing package release logic wherever possible
 - only the missing Polytropos-specific pieces should be added
 
-### 3) `scripts/polytropos-release.mjs` still needs to change downstream
-
-The current core release script is built around GitHub Actions artifact discovery and download, not registry package resolution.
-
-Consequence:
-
-- even with GitHub Packages as source of truth, downstream still needs a clean handoff artifact
-- the release script must move from "download one core artifact from one run" to "consume the workflow’s package/artifact list"
-
-### 4) Host-side plugin install/update logic is the main place that needs source-aware behavior
+### 3) Host-side plugin install/update logic is the main place that needs source-aware behavior
 
 There are currently two overlapping models:
 
