@@ -134,22 +134,18 @@ Implementation rule:
 - reuse existing package release logic wherever possible
 - only add the missing Polytropos-specific pieces
 
-## Main Issues With This Proposal
+## Implementation Notes
 
-### 1) Package-scoped diffing needs a clear default resolution rule
+### 1) Package-scoped diffing default
 
 If "changes" means changes to the relevant source directories, the workflow needs a reliable way to derive those directories from a package name.
-
-Consequence:
 
 - for plugin packages, the simplest default is to resolve the package by matching `extensions/*/package.json` and then use that extension directory as the diff root
 - if any packages also depend on shared/generated paths that should trigger publishes, those exceptions need to be documented explicitly
 
-### 2) Host-side plugin install/update behavior still needs to be stated concretely
+### 2) Host-side plugin install/update flow
 
 The proposal says downstream will download plugin packages and install them "in the expected way", but that expected way should be stated explicitly in terms of the actual host-side install/update path.
-
-Consequence:
 
 - the doc should name the concrete host-side install/update flow that Polytropos-managed plugin packages will use
 
