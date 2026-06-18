@@ -129,6 +129,11 @@ Implementation consequence:
 
 - `scripts/polytropos-release.mjs` will need to consume the workflow’s package/artifact list instead of assuming a single core artifact download path
 
+Implementation rule:
+
+- reuse existing package release logic wherever possible
+- only add the missing Polytropos-specific pieces
+
 ## Main Issues With This Proposal
 
 ### 1) Package-scoped diffing needs a clear default resolution rule
@@ -140,16 +145,7 @@ Consequence:
 - for plugin packages, the simplest default is to resolve the package by matching `extensions/*/package.json` and then use that extension directory as the diff root
 - if any packages also depend on shared/generated paths that should trigger publishes, those exceptions need to be documented explicitly
 
-### 2) Existing package release logic should be reused as much as possible
-
-This repo already has useful release-selection logic for publishable packages.
-
-Consequence:
-
-- the workflow should reuse existing package release logic wherever possible
-- only the missing Polytropos-specific pieces should be added
-
-### 3) Host-side plugin install/update logic is the main place that needs source-aware behavior
+### 2) Host-side plugin install/update logic is the main place that needs source-aware behavior
 
 There are currently two overlapping models:
 
