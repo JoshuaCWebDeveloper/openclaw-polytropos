@@ -76,6 +76,14 @@ function releasesRoot() {
   return path.join(resolveHome(), "polytropos", "releases");
 }
 
+function inventoryPathForTag(relRoot, releaseTag) {
+  return path.join(relRoot, `${releaseTag}.package-inventory.json`);
+}
+
+function pluginReleasesRoot(relRoot) {
+  return path.join(relRoot, "plugins");
+}
+
 function readlinkAbs(p) {
   try {
     return fs.realpathSync(p);
@@ -483,6 +491,7 @@ try {
 
     const relRoot = releasesRoot();
     fs.mkdirSync(relRoot, { recursive: true });
+    fs.mkdirSync(pluginReleasesRoot(relRoot), { recursive: true });
     assertReleaseStoreConsistent(relRoot);
 
     try {
@@ -508,6 +517,7 @@ try {
     await shTee(logStream, "gh", ["run", "watch", runId, "--repo", ghRepo, "--exit-status"]);
 
     const artifact = `openclaw-tgz-${releaseTag}`;
+    const inventoryArtifact = `polytropos-package-inventory-${releaseTag}`;
     const tmpDir = fs.mkdtempSync(path.join(resolveHome(), ".openclaw", "tmp-release-"));
 
     banner(logStream, `Downloading artifact ${artifact} to ${tmpDir}`);
@@ -519,6 +529,19 @@ try {
       ghRepo,
       "-n",
       artifact,
+      "--dir",
+      tmpDir,
+    ]);
+
+    banner(logStream, `Downloading artifact ${inventoryArtifact} to ${tmpDir}`);
+    await shTee(logStream, "gh", [
+      "run",
+      "download",
+      runId,
+      "--repo",
+      ghRepo,
+      "-n",
+      inventoryArtifact,
       "--dir",
       tmpDir,
     ]);
@@ -555,6 +578,7 @@ try {
     }
 
     const tarPath = path.join(relRoot, `${releaseTag}.tgz`);
+    const inventoryPath = inventoryPathForTag(relRoot, releaseTag);
     if (fs.existsSync(tarPath)) {
       banner(logStream, `Tarball already staged: ${tarPath}`);
       const info = tgzInternalVersion(tarPath);
@@ -570,7 +594,14 @@ try {
       fs.copyFileSync(tgzPath, tarPath);
     }
 
+    const foundInventory = path.join(tmpDir, "polytropos-package-inventory.json");
+    if (!fs.existsSync(foundInventory)) {
+      fail(`expected downloaded inventory artifact at ${foundInventory}`);
+    }
+    fs.copyFileSync(foundInventory, inventoryPath);
+
     banner(logStream, `Staged tarball: ${tarPath}`);
+    banner(logStream, `Staged package inventory: ${inventoryPath}`);
     const currentTgz = path.join(relRoot, "current.tgz");
     assertSymlink(currentTgz, "current.tgz");
     const previousTgz = path.join(relRoot, "previous.tgz");

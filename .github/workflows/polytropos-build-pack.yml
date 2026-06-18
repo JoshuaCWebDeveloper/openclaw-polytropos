@@ -14,6 +14,7 @@ env:
   NODE_OPTIONS: "--max-old-space-size=6144"
   OPENCLAW_TSDOWN_NODE_OPTIONS: "--max-old-space-size=6144"
   NODE_VERSION: "24.15.0"
+  POLYTROPOS_PACKAGE_INVENTORY_ARTIFACT: polytropos-package-inventory
 
 jobs:
   resolve_release_target:
@@ -131,6 +132,62 @@ jobs:
         with:
           name: openclaw-tgz-${{ env.RELEASE_TAG }}
           path: ${{ steps.pack.outputs.tgz }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Generate package inventory
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_ARTIFACT_NAME: openclaw-tgz-${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p .local
+
+          artifact_id="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+              --jq ".artifacts[] | select(.name == \"${PACKAGE_ARTIFACT_NAME}\") | .id" \
+              | head -n 1
+          )"
+          if [ -z "${artifact_id}" ]; then
+            echo "Failed to resolve artifact id for ${PACKAGE_ARTIFACT_NAME}" >&2
+            exit 1
+          fi
+
+          core_artifact_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts/${artifact_id}"
+          tracked_plugins="$(jq -r '.[] | select(. != "openclaw")' .github/polytropos-tracked-packages.json | paste -sd, -)"
+          previous_release_tag="$(
+            git tag -l 'v*+poly.*' \
+              | grep -Fxv "${RELEASE_TAG}" \
+              | sort -V \
+              | tail -n 1
+            || true
+          )"
+
+          inventory_args=(
+            --tracked-packages-file .github/polytropos-tracked-packages.json
+            --output .local/polytropos-package-inventory.json
+            --release-tag "${RELEASE_TAG}"
+            --repository "${GITHUB_REPOSITORY}"
+            --workflow-run-id "${GITHUB_RUN_ID}"
+            --core-artifact-url "${core_artifact_url}"
+            --core-artifact-file "${{ steps.pack.outputs.tgz }}"
+            --plugins "${tracked_plugins}"
+          )
+          if [ -n "${previous_release_tag}" ]; then
+            inventory_args+=(--base-ref "${previous_release_tag}" --head-ref "${RELEASE_TAG}")
+          fi
+
+          node --import tsx scripts/polytropos-package-inventory.ts "${inventory_args[@]}"
+
+      - name: Upload package inventory artifact
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.POLYTROPOS_PACKAGE_INVENTORY_ARTIFACT }}-${{ env.RELEASE_TAG }}
+          path: .local/polytropos-package-inventory.json
           if-no-files-found: error
           retention-days: 14
 
