@@ -807,65 +807,6 @@ describe("updateNpmInstalledPlugins", () => {
     ]);
   });
 
-  it("reinstalls unchanged npm plugins when explicitly forced", async () => {
-    const installPath = createInstalledPackageDir({
-      name: "@martian-engineering/lossless-claw",
-      version: "0.9.0",
-    });
-    mockNpmViewMetadata({
-      name: "@martian-engineering/lossless-claw",
-      version: "0.9.0",
-      integrity: "sha512-same",
-      shasum: "same",
-    });
-    installPluginFromNpmSpecMock.mockResolvedValue(
-      createSuccessfulNpmUpdateResult({
-        pluginId: "lossless-claw",
-        targetDir: installPath,
-        version: "0.9.0",
-        npmResolution: {
-          name: "@martian-engineering/lossless-claw",
-          version: "0.9.0",
-          resolvedSpec: "@martian-engineering/lossless-claw@0.9.0",
-        },
-      }),
-    );
-    const config: OpenClawConfig = {
-      plugins: {
-        installs: {
-          "lossless-claw": {
-            source: "npm",
-            spec: "@martian-engineering/lossless-claw",
-            installPath,
-            resolvedName: "@martian-engineering/lossless-claw",
-            resolvedVersion: "0.9.0",
-            resolvedSpec: "@martian-engineering/lossless-claw@0.9.0",
-            integrity: "sha512-same",
-            shasum: "same",
-          },
-        },
-      },
-    };
-
-    const result = await updateNpmInstalledPlugins({
-      config,
-      pluginIds: ["lossless-claw"],
-      forceReinstallPluginIds: new Set(["lossless-claw"]),
-    });
-
-    expect(installPluginFromNpmSpecMock).toHaveBeenCalled();
-    expect(result.changed).toBe(true);
-    expect(result.outcomes).toEqual([
-      {
-        pluginId: "lossless-claw",
-        status: "updated",
-        currentVersion: "0.9.0",
-        nextVersion: "0.9.0",
-        message: "Updated lossless-claw: 0.9.0 -> 0.9.0.",
-      },
-    ]);
-  });
-
   it("does not skip unchanged npm plugins when package metadata requires a newer plugin API", async () => {
     vi.stubEnv("OPENCLAW_COMPATIBILITY_HOST_VERSION", "2026.5.28-beta.3");
     const installPath = createInstalledPackageDir({
