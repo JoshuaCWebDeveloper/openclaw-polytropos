@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildInstallCommand } from "../../scripts/lib/polytropos-release-install.mjs";
@@ -54,6 +55,9 @@ describe("polytropos release helpers", () => {
   });
 
   it("selects managed publishable npm installs when no git range is provided", () => {
+    const { version: releaseVersion } = JSON.parse(
+      fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
+    ) as { version: string };
     const targets = resolveReleaseManagedNpmPluginTargets({
       repoRoot: process.cwd(),
       installRecords: {
@@ -82,15 +86,15 @@ describe("polytropos release helpers", () => {
       pluginId: "codex",
       packageName: "@openclaw/codex",
       installedVersion: "2026.5.1",
-      releaseVersion: "2026.6.1",
-      specOverride: "@openclaw/codex@2026.6.1",
+      releaseVersion,
+      specOverride: `@openclaw/codex@${releaseVersion}`,
     });
     expect(targets).toContainEqual({
       pluginId: "discord",
       packageName: "@openclaw/discord",
       installedVersion: "2026.6.1",
-      releaseVersion: "2026.6.1",
-      specOverride: "@openclaw/discord@2026.6.1",
+      releaseVersion,
+      specOverride: `@openclaw/discord@${releaseVersion}`,
     });
     expect(targets.some((entry) => entry.pluginId === "custom")).toBe(false);
   });

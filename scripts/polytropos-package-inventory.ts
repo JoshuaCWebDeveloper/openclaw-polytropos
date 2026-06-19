@@ -10,6 +10,10 @@ import {
   parsePluginReleaseSelection,
   type PluginPackageJson,
 } from "./lib/plugin-npm-release.ts";
+import {
+  GITHUB_PACKAGES_REGISTRY_URL,
+  resolvePolytroposGithubPublishedPackageName,
+} from "./lib/polytropos-github-packages.ts";
 
 type PackageInventoryEntry = {
   packageName: string;
@@ -20,10 +24,11 @@ type PackageInventoryEntry = {
   publishedInRun: boolean;
   artifactUrl: string | null;
   integrity: string | null;
+  publishedPackageName?: string;
   packageDir?: string;
   extensionId?: string;
   diffRoots: string[];
-  source: "github-actions-artifact" | "npm-registry";
+  source: "github-package-registry";
 };
 
 type PackageInventory = {
@@ -41,8 +46,8 @@ type CliOptions = {
   releaseTag: string | null;
   repository: string | null;
   workflowRunId: string | null;
-  coreArtifactUrl: string | null;
-  coreArtifactFile: string | null;
+  githubPackageScope: string | null;
+  packageRegistryUrl: string;
   pluginSelection: string[];
   baseRef: string | null;
   headRef: string | null;
@@ -67,8 +72,8 @@ function parseArgs(argv: string[]): CliOptions {
   let releaseTag: string | null = null;
   let repository: string | null = null;
   let workflowRunId: string | null = null;
-  let coreArtifactUrl: string | null = null;
-  let coreArtifactFile: string | null = null;
+  let githubPackageScope: string | null = null;
+  let packageRegistryUrl = GITHUB_PACKAGES_REGISTRY_URL;
   let baseRef: string | null = null;
   let headRef: string | null = null;
   let pluginSelection: string[] = [];
@@ -97,12 +102,12 @@ function parseArgs(argv: string[]): CliOptions {
         workflowRunId = next ?? fail("--workflow-run-id requires a value");
         index += 1;
         break;
-      case "--core-artifact-url":
-        coreArtifactUrl = next ?? fail("--core-artifact-url requires a value");
+      case "--github-package-scope":
+        githubPackageScope = next ?? fail("--github-package-scope requires a value");
         index += 1;
         break;
-      case "--core-artifact-file":
-        coreArtifactFile = next ?? fail("--core-artifact-file requires a value");
+      case "--package-registry-url":
+        packageRegistryUrl = next ?? fail("--package-registry-url requires a value");
         index += 1;
         break;
       case "--base-ref":
@@ -132,8 +137,8 @@ function parseArgs(argv: string[]): CliOptions {
     releaseTag,
     repository,
     workflowRunId,
-    coreArtifactUrl,
-    coreArtifactFile,
+    githubPackageScope,
+    packageRegistryUrl,
     pluginSelection,
     baseRef,
     headRef,
@@ -163,16 +168,15 @@ function readRootPackageVersion(): string {
   return version;
 }
 
-function sha256File(filePath: string): string {
-  return execFileSync("sha256sum", [filePath], { encoding: "utf8" }).trim().split(/\s+/)[0] ?? "";
-}
-
-function npmViewJson(spec: string): {
+function npmViewJson(
+  spec: string,
+  packageRegistryUrl: string,
+): {
   version?: string;
   dist?: { tarball?: string; integrity?: string; shasum?: string };
 } | null {
   try {
-    const raw = execFileSync("npm", ["view", spec, "--json"], {
+    const raw = execFileSync("npm", ["view", spec, "--json", "--registry", packageRegistryUrl], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
@@ -223,21 +227,36 @@ function collectChangedPluginPackageNames(params: {
   );
 }
 
+function requireGithubPackageScope(options: CliOptions): string {
+  const scope = options.githubPackageScope?.trim();
+  if (!scope) {
+    fail("--github-package-scope is required");
+  }
+  return scope;
+}
+
 function buildCoreEntry(options: CliOptions): PackageInventoryEntry {
+  const publishedPackageName = resolvePolytroposGithubPublishedPackageName({
+    packageName: "openclaw",
+    githubScope: requireGithubPackageScope(options),
+  });
+  const publishedMetadata = npmViewJson(
+    `${publishedPackageName}@${readRootPackageVersion()}`,
+    options.packageRegistryUrl,
+  );
   return {
     packageName: "openclaw",
     packageType: "core",
-    baseVersion: null,
-    latestVersion: readRootPackageVersion(),
+    baseVersion: publishedMetadata?.version?.trim() || null,
+    latestVersion: publishedMetadata?.version?.trim() || readRootPackageVersion(),
     changed: true,
-    publishedInRun: Boolean(options.releaseTag),
-    artifactUrl: options.coreArtifactUrl,
+    publishedInRun: Boolean(publishedMetadata?.version),
+    artifactUrl: publishedMetadata?.dist?.tarball?.trim() || null,
     integrity:
-      options.coreArtifactFile && fs.existsSync(path.resolve(options.coreArtifactFile))
-        ? `sha256:${sha256File(path.resolve(options.coreArtifactFile))}`
-        : null,
+      publishedMetadata?.dist?.integrity?.trim() || publishedMetadata?.dist?.shasum?.trim() || null,
+    publishedPackageName,
     diffRoots: ["*"],
-    source: "github-actions-artifact",
+    source: "github-package-registry",
   };
 }
 
@@ -272,20 +291,31 @@ function buildPluginEntries(
     if (!candidate) {
       fail(`Tracked plugin package does not resolve to extensions/*/package.json: ${packageName}`);
     }
-    const npmMetadata = npmViewJson(packageName);
+    const publishedPackageName = resolvePolytroposGithubPublishedPackageName({
+      packageName,
+      githubScope: requireGithubPackageScope(options),
+    });
+    const version = candidate.packageJson.version?.trim() ?? null;
+    const publishedMetadata = version
+      ? npmViewJson(`${publishedPackageName}@${version}`, options.packageRegistryUrl)
+      : null;
     return {
       packageName,
       packageType: "plugin",
-      baseVersion: npmMetadata?.version?.trim() || null,
-      latestVersion: npmMetadata?.version?.trim() || null,
+      baseVersion: publishedMetadata?.version?.trim() || null,
+      latestVersion: publishedMetadata?.version?.trim() || version,
       changed: selectedPlugins.has(packageName) && changedPackages.has(packageName),
-      publishedInRun: false,
-      artifactUrl: npmMetadata?.dist?.tarball?.trim() || null,
-      integrity: npmMetadata?.dist?.integrity?.trim() || npmMetadata?.dist?.shasum?.trim() || null,
+      publishedInRun: Boolean(publishedMetadata?.version),
+      artifactUrl: publishedMetadata?.dist?.tarball?.trim() || null,
+      integrity:
+        publishedMetadata?.dist?.integrity?.trim() ||
+        publishedMetadata?.dist?.shasum?.trim() ||
+        null,
+      publishedPackageName,
       packageDir: candidate.packageDir,
       extensionId: candidate.extensionId,
       diffRoots: [candidate.packageDir],
-      source: "npm-registry",
+      source: "github-package-registry",
     };
   });
 }

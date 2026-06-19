@@ -70,9 +70,11 @@ Example:
 ```json
 { "field": "value" }
 ```
+````
 
 **Introduced:** <commit>
-````
+
+```
 
 ## 3) Emission strategy (core)
 
@@ -97,3 +99,4 @@ When a new hook is required, we add a single emit/dispatch call where the event 
 # Event/Hook Index
 
 (Empty for now — add entries here as we introduce fork-level hooks.)
+```

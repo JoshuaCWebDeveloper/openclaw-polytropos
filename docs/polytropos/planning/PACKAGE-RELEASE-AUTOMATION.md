@@ -21,9 +21,9 @@ Make Polytropos core and every tracked Polytropos plugin follow one release auto
 
 - Repo: `openclaw-polytropos`
 - Current packaging workflow: `.github/workflows/polytropos-build-pack.yml`
-- Current output: a release-tagged `openclaw` `.tgz` uploaded as a GitHub Actions artifact
+- Current output: a release-tagged package inventory artifact plus the package artifacts it references
 - Current downstream install path: `scripts/polytropos-release.mjs`
-- Current release script contract: find workflow run, download exact artifact, stage in `~/polytropos/releases/`, install globally
+- Current release script contract: find workflow run, download release inventory, stage in `~/polytropos/releases/`, install from that inventory
 
 ### Plugins
 
@@ -116,6 +116,7 @@ Apply the same model to core:
 - publish it to GitHub Packages
 - only publish when relevant core source paths changed since the prior published Polytropos release for core
 - keep the workflow output as a full package inventory, not just one tarball
+- if core did not change, carry forward the previous core locator in the release inventory instead of forcing a new core package
 
 Default safe rule for core:
 
@@ -124,7 +125,7 @@ Default safe rule for core:
 
 ### 5) Full package inventory artifact
 
-Each workflow run should emit one canonical inventory artifact, e.g. `polytropos-package-inventory.json`, containing every tracked package:
+Each workflow run should emit one canonical inventory artifact, e.g. `v2026.6.1+poly.58.json`, containing every tracked package:
 
 - package name
 - latest version
@@ -135,6 +136,7 @@ Each workflow run should emit one canonical inventory artifact, e.g. `polytropos
 - integrity metadata
 
 Unchanged packages should still appear in the inventory with their latest known installable locator.
+That inventory file becomes the local release artifact.
 
 ### 6) Downstream installer model
 
@@ -142,15 +144,16 @@ Downstream should consume the inventory, not rediscover packages ad hoc.
 
 Desired flow:
 
-1. Download package inventory
-2. Resolve core package locator from inventory
-3. Install core via the normal package-install path
-4. Resolve plugin package locators from inventory
-5. Install/update plugins via the chosen standard plugin-install path
+1. Download the release inventory
+2. Stage it locally as the authoritative release artifact for that release tag
+3. Resolve the core package locator from the inventory
+4. Install core via the normal package-install path
+5. Resolve plugin package locators from the inventory
+6. Install/update plugins via the chosen standard plugin-install path
 
 Implementation consequence:
 
-- `scripts/polytropos-release.mjs` will need to consume the workflow’s package/artifact list instead of assuming a single core artifact download path
+- `scripts/polytropos-release.mjs` will need to treat the release inventory as the local release artifact instead of assuming a single core artifact download path
 - a local staging/cache directory like `~/polytropos/releases/plugins` is a reasonable default for downloaded plugin artifacts before install
 
 Implementation rule:
