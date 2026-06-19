@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
+      # Keep this workflow intentionally narrow: it exists only to enforce
+      # general repo formatting for the Polytropos fork.
       - name: Checkout
         uses: actions/checkout@v6
 
