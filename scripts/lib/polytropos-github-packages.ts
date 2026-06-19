@@ -25,11 +25,11 @@ export function resolvePolytroposGithubPublishedPackageName(params: {
     throw new Error("Tracked package name must be non-empty.");
   }
   if (packageName === "openclaw") {
-    return `${scope}/openclaw`;
+    return `${scope}/openclaw-polytropos-core`;
   }
   const suffix = packageName.split("/").at(-1)?.trim();
   if (!suffix) {
     throw new Error(`Could not resolve published package suffix for ${packageName}`);
   }
-  return `${scope}/${suffix}`;
+  return `${scope}/openclaw-polytropos-${suffix}`;
 }

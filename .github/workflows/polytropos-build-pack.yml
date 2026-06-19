@@ -160,7 +160,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .local/github-packages
-          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw"
+          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-core"
           output_tgz=".local/github-packages/$(basename "${{ steps.pack.outputs.tgz }}")"
           node scripts/polytropos-prepare-github-package-tarball.mjs \
             --input "${{ steps.pack.outputs.tgz }}" \
@@ -204,7 +204,7 @@ jobs:
         id: prepare_acpx_github_package
         run: |
           set -euo pipefail
-          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/acpx"
+          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-acpx"
           output_tgz=".local/github-packages/$(basename "${{ steps.pack_acpx.outputs.tgz }}")"
           node scripts/polytropos-prepare-github-package-tarball.mjs \
             --input "${{ steps.pack_acpx.outputs.tgz }}" \
@@ -249,7 +249,7 @@ jobs:
         id: prepare_brave_github_package
         run: |
           set -euo pipefail
-          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/brave-plugin"
+          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-brave-plugin"
           output_tgz=".local/github-packages/$(basename "${{ steps.pack_brave.outputs.tgz }}")"
           node scripts/polytropos-prepare-github-package-tarball.mjs \
             --input "${{ steps.pack_brave.outputs.tgz }}" \
@@ -294,7 +294,7 @@ jobs:
         id: prepare_codex_github_package
         run: |
           set -euo pipefail
-          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/codex"
+          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-codex"
           output_tgz=".local/github-packages/$(basename "${{ steps.pack_codex.outputs.tgz }}")"
           node scripts/polytropos-prepare-github-package-tarball.mjs \
             --input "${{ steps.pack_codex.outputs.tgz }}" \
@@ -339,7 +339,7 @@ jobs:
         id: prepare_discord_github_package
         run: |
           set -euo pipefail
-          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/discord"
+          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-discord"
           output_tgz=".local/github-packages/$(basename "${{ steps.pack_discord.outputs.tgz }}")"
           node scripts/polytropos-prepare-github-package-tarball.mjs \
             --input "${{ steps.pack_discord.outputs.tgz }}" \
@@ -368,11 +368,11 @@ jobs:
         run: |
           set -euo pipefail
           specs=(
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw@${{ steps.pack.outputs.version }}"
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/acpx@${{ steps.pack_acpx.outputs.version }}"
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/brave-plugin@${{ steps.pack_brave.outputs.version }}"
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/codex@${{ steps.pack_codex.outputs.version }}"
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/discord@${{ steps.pack_discord.outputs.version }}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-core@${{ steps.pack.outputs.version }}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-acpx@${{ steps.pack_acpx.outputs.version }}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-brave-plugin@${{ steps.pack_brave.outputs.version }}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-codex@${{ steps.pack_codex.outputs.version }}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-discord@${{ steps.pack_discord.outputs.version }}"
           )
           for spec in "${specs[@]}"; do
             for attempt in $(seq 1 12); do
