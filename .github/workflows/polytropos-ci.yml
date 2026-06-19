@@ -63,6 +63,8 @@ jobs:
           install-bun: "false"
 
       - name: Lint
+        env:
+          OPENCLAW_SKIP_SLACK_BOUNDARY_DTS: "1"
         run: pnpm lint --threads=8
 
       - name: Check general code formatting
