@@ -14,7 +14,7 @@ on:
         default: false
         type: boolean
   push:
-    branches: [main]
+    branches: [main, master]
     paths-ignore:
       - "**/*.md"
       - "docs/**"
