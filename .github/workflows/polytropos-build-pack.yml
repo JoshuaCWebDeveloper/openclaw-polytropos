@@ -197,8 +197,9 @@ jobs:
               npm pack --json --ignore-scripts --pack-destination "${plugin_pack_dir}"
           )"
           tgz="$(printf '%s\n' "${pack_json}" | jq -r '.[0].filename')"
+          version="$(node -p 'require("./extensions/acpx/package.json").version')"
           echo "tgz=${plugin_pack_dir}/${tgz}" >> "$GITHUB_OUTPUT"
-          echo "version=$(node -p \"require('./extensions/acpx/package.json').version\")" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare acpx GitHub Packages tarball
         if: github.ref_type == 'tag'
@@ -243,8 +244,9 @@ jobs:
               npm pack --json --ignore-scripts --pack-destination "${plugin_pack_dir}"
           )"
           tgz="$(printf '%s\n' "${pack_json}" | jq -r '.[0].filename')"
+          version="$(node -p 'require("./extensions/brave/package.json").version')"
           echo "tgz=${plugin_pack_dir}/${tgz}" >> "$GITHUB_OUTPUT"
-          echo "version=$(node -p \"require('./extensions/brave/package.json').version\")" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare brave GitHub Packages tarball
         if: github.ref_type == 'tag'
@@ -289,8 +291,9 @@ jobs:
               npm pack --json --ignore-scripts --pack-destination "${plugin_pack_dir}"
           )"
           tgz="$(printf '%s\n' "${pack_json}" | jq -r '.[0].filename')"
+          version="$(node -p 'require("./extensions/codex/package.json").version')"
           echo "tgz=${plugin_pack_dir}/${tgz}" >> "$GITHUB_OUTPUT"
-          echo "version=$(node -p \"require('./extensions/codex/package.json').version\")" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare codex GitHub Packages tarball
         if: github.ref_type == 'tag'
@@ -335,8 +338,9 @@ jobs:
               npm pack --json --ignore-scripts --pack-destination "${plugin_pack_dir}"
           )"
           tgz="$(printf '%s\n' "${pack_json}" | jq -r '.[0].filename')"
+          version="$(node -p 'require("./extensions/discord/package.json").version')"
           echo "tgz=${plugin_pack_dir}/${tgz}" >> "$GITHUB_OUTPUT"
-          echo "version=$(node -p \"require('./extensions/discord/package.json').version\")" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare discord GitHub Packages tarball
         if: github.ref_type == 'tag'
