@@ -190,7 +190,7 @@ jobs:
             echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
             exit 0
           fi
-          npm publish "${{ steps.prepare_core_github_package.outputs.tgz }}" --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
+          npm publish "${{ steps.prepare_core_github_package.outputs.tgz }}" --tag latest --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
 
       - name: Pack acpx plugin artifact
         if: github.ref_type == 'tag'
@@ -237,7 +237,7 @@ jobs:
             echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
             exit 0
           fi
-          npm publish "${{ steps.prepare_acpx_github_package.outputs.tgz }}" --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
+          npm publish "${{ steps.prepare_acpx_github_package.outputs.tgz }}" --tag latest --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
 
       - name: Pack brave plugin artifact
         if: github.ref_type == 'tag'
@@ -284,7 +284,7 @@ jobs:
             echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
             exit 0
           fi
-          npm publish "${{ steps.prepare_brave_github_package.outputs.tgz }}" --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
+          npm publish "${{ steps.prepare_brave_github_package.outputs.tgz }}" --tag latest --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
 
       - name: Pack codex plugin artifact
         if: github.ref_type == 'tag'
@@ -331,7 +331,7 @@ jobs:
             echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
             exit 0
           fi
-          npm publish "${{ steps.prepare_codex_github_package.outputs.tgz }}" --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
+          npm publish "${{ steps.prepare_codex_github_package.outputs.tgz }}" --tag latest --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
 
       - name: Pack discord plugin artifact
         if: github.ref_type == 'tag'
@@ -378,7 +378,7 @@ jobs:
             echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
             exit 0
           fi
-          npm publish "${{ steps.prepare_discord_github_package.outputs.tgz }}" --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
+          npm publish "${{ steps.prepare_discord_github_package.outputs.tgz }}" --tag latest --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
 
       - name: Wait for GitHub Packages visibility
         if: github.ref_type == 'tag'
