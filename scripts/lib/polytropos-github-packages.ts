@@ -1,5 +1,7 @@
 export const GITHUB_PACKAGES_REGISTRY_URL = "https://npm.pkg.github.com";
 
+const POLYTROPOS_RELEASE_TAG_REGEX = /^v(?<base>\d{4}\.\d+\.\d+)\+poly\.(?<correction>[1-9]\d*)$/;
+
 function normalizeScope(rawScope: string): string {
   const normalized = rawScope.trim().replace(/^@/, "").toLowerCase();
   if (!normalized) {
@@ -32,4 +34,13 @@ export function resolvePolytroposGithubPublishedPackageName(params: {
     throw new Error(`Could not resolve published package suffix for ${packageName}`);
   }
   return `${scope}/openclaw-polytropos-${suffix}`;
+}
+
+export function resolvePolytroposPackageVersionFromReleaseTag(releaseTag: string): string {
+  const normalized = releaseTag.trim();
+  const match = POLYTROPOS_RELEASE_TAG_REGEX.exec(normalized);
+  if (!match?.groups) {
+    throw new Error(`Invalid Polytropos release tag: ${releaseTag}`);
+  }
+  return `${match.groups.base}-${match.groups.correction}`;
 }
