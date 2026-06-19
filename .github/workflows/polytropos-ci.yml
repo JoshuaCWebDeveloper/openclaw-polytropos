@@ -22,13 +22,11 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  format-check:
+  build:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      # Keep this workflow intentionally narrow: it exists only to enforce
-      # general repo formatting for the Polytropos fork.
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -37,5 +35,54 @@ jobs:
         with:
           install-bun: "false"
 
+      - name: Build dist artifacts
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: pnpm build:ci-artifacts
+
+      - name: Smoke test CLI launcher help
+        run: node openclaw.mjs --help
+
+      - name: Smoke test CLI launcher status json
+        run: node openclaw.mjs status --json --timeout 1
+
+      - name: Smoke test built bundled plugin singleton
+        run: pnpm test:build:singleton
+
+  lint-and-format:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-bun: "false"
+
+      - name: Lint
+        run: pnpm lint --threads=8
+
       - name: Check general code formatting
         run: pnpm format:check
+
+  typecheck:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-bun: "false"
+
+      - name: Typecheck production sources
+        run: pnpm tsgo:prod
+
+      - name: Typecheck test sources
+        run: pnpm check:test-types
