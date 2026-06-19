@@ -111,14 +111,8 @@ jobs:
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
-            release_package_version="$(
-              node -e 'const ref = process.argv[1]; const match = /^v(\d{4}\.\d+\.\d+)\+poly\.([1-9]\d*)$/.exec(ref); if (!match) { process.exit(1); } process.stdout.write(`${match[1]}-${match[2]}`);' \
-                "${GITHUB_REF_NAME}"
-            )"
-            echo "RELEASE_PACKAGE_VERSION=${release_package_version}" >> "$GITHUB_ENV"
           else
             echo "RELEASE_TAG=" >> "$GITHUB_ENV"
-            echo "RELEASE_PACKAGE_VERSION=" >> "$GITHUB_ENV"
           fi
       - name: Pack
         id: pack
@@ -152,6 +146,20 @@ jobs:
             printf 'always-auth=true\n'
           } > "${HOME}/.npmrc"
           echo "package_scope=${package_scope}" >> "$GITHUB_OUTPUT"
+      - name: Resolve release package version
+        if: github.ref_type == 'tag'
+        id: release_package_version
+        run: |
+          set -euo pipefail
+          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-core"
+          latest_published_version="$(npm view "${published_name}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" 2>/dev/null || true)"
+          release_package_version="$(
+            node --import tsx -e 'import { resolveNextPolytroposPublishedPackageVersion } from "./scripts/lib/polytropos-github-packages.ts"; process.stdout.write(resolveNextPolytroposPublishedPackageVersion({ releaseTag: process.argv[1], latestPublishedVersion: process.argv[2] || null }));' \
+              "${RELEASE_TAG}" \
+              "${latest_published_version}"
+          )"
+          echo "release_package_version=${release_package_version}" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_PACKAGE_VERSION=${release_package_version}" >> "$GITHUB_ENV"
       - name: Upload package artifact
         if: github.ref_type == 'tag'
         id: upload_core_artifact
