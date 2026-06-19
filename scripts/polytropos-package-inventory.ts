@@ -10,6 +10,10 @@ import {
   parsePluginReleaseSelection,
   type PluginPackageJson,
 } from "./lib/plugin-npm-release.ts";
+import {
+  GITHUB_PACKAGES_REGISTRY_URL,
+  resolvePolytroposGithubPublishedPackageName,
+} from "./lib/polytropos-github-packages.ts";
 
 type PackageInventoryEntry = {
   packageName: string;
@@ -20,10 +24,11 @@ type PackageInventoryEntry = {
   publishedInRun: boolean;
   artifactUrl: string | null;
   integrity: string | null;
+  publishedPackageName?: string;
   packageDir?: string;
   extensionId?: string;
   diffRoots: string[];
-  source: "github-actions-artifact";
+  source: "github-package-registry";
 };
 
 type PackageInventory = {
@@ -41,19 +46,11 @@ type CliOptions = {
   releaseTag: string | null;
   repository: string | null;
   workflowRunId: string | null;
-  coreArtifactUrl: string | null;
-  coreArtifactFile: string | null;
-  pluginArtifactsFile: string | null;
+  githubPackageScope: string | null;
+  packageRegistryUrl: string;
   pluginSelection: string[];
   baseRef: string | null;
   headRef: string | null;
-};
-
-type PluginArtifactMetadata = {
-  packageName: string;
-  artifactUrl: string;
-  artifactFile?: string | null;
-  version?: string | null;
 };
 
 const SHARED_PLUGIN_PATHS = [
@@ -75,9 +72,8 @@ function parseArgs(argv: string[]): CliOptions {
   let releaseTag: string | null = null;
   let repository: string | null = null;
   let workflowRunId: string | null = null;
-  let coreArtifactUrl: string | null = null;
-  let coreArtifactFile: string | null = null;
-  let pluginArtifactsFile: string | null = null;
+  let githubPackageScope: string | null = null;
+  let packageRegistryUrl = GITHUB_PACKAGES_REGISTRY_URL;
   let baseRef: string | null = null;
   let headRef: string | null = null;
   let pluginSelection: string[] = [];
@@ -106,16 +102,12 @@ function parseArgs(argv: string[]): CliOptions {
         workflowRunId = next ?? fail("--workflow-run-id requires a value");
         index += 1;
         break;
-      case "--core-artifact-url":
-        coreArtifactUrl = next ?? fail("--core-artifact-url requires a value");
+      case "--github-package-scope":
+        githubPackageScope = next ?? fail("--github-package-scope requires a value");
         index += 1;
         break;
-      case "--core-artifact-file":
-        coreArtifactFile = next ?? fail("--core-artifact-file requires a value");
-        index += 1;
-        break;
-      case "--plugin-artifacts-file":
-        pluginArtifactsFile = next ?? fail("--plugin-artifacts-file requires a value");
+      case "--package-registry-url":
+        packageRegistryUrl = next ?? fail("--package-registry-url requires a value");
         index += 1;
         break;
       case "--base-ref":
@@ -145,9 +137,8 @@ function parseArgs(argv: string[]): CliOptions {
     releaseTag,
     repository,
     workflowRunId,
-    coreArtifactUrl,
-    coreArtifactFile,
-    pluginArtifactsFile,
+    githubPackageScope,
+    packageRegistryUrl,
     pluginSelection,
     baseRef,
     headRef,
@@ -177,48 +168,31 @@ function readRootPackageVersion(): string {
   return version;
 }
 
-function sha256File(filePath: string): string {
-  return execFileSync("sha256sum", [filePath], { encoding: "utf8" }).trim().split(/\s+/)[0] ?? "";
-}
-
-function readPluginArtifacts(
-  filePath: string | null,
-): Map<string, Required<Pick<PluginArtifactMetadata, "artifactUrl">> & PluginArtifactMetadata> {
-  if (!filePath) {
-    return new Map();
-  }
-  const resolved = path.resolve(filePath);
-  const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as unknown;
-  if (!Array.isArray(parsed)) {
-    fail(`Plugin artifacts file must be a JSON array: ${resolved}`);
-  }
-  const entries = new Map<
-    string,
-    Required<Pick<PluginArtifactMetadata, "artifactUrl">> & PluginArtifactMetadata
-  >();
-  for (const entry of parsed) {
-    if (
-      !entry ||
-      typeof entry !== "object" ||
-      typeof entry.packageName !== "string" ||
-      !entry.packageName.trim() ||
-      typeof entry.artifactUrl !== "string" ||
-      !entry.artifactUrl.trim()
-    ) {
-      fail(`Plugin artifacts file contains an invalid entry: ${resolved}`);
+function npmViewJson(
+  spec: string,
+  packageRegistryUrl: string,
+): {
+  version?: string;
+  dist?: { tarball?: string; integrity?: string; shasum?: string };
+} | null {
+  try {
+    const raw = execFileSync("npm", ["view", spec, "--json", "--registry", packageRegistryUrl], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    if (!raw) {
+      return null;
     }
-    entries.set(entry.packageName.trim(), {
-      packageName: entry.packageName.trim(),
-      artifactUrl: entry.artifactUrl.trim(),
-      artifactFile:
-        typeof entry.artifactFile === "string" && entry.artifactFile.trim()
-          ? entry.artifactFile.trim()
-          : null,
-      version:
-        typeof entry.version === "string" && entry.version.trim() ? entry.version.trim() : null,
-    });
+    const parsed = JSON.parse(raw) as
+      | { version?: string; dist?: { tarball?: string; integrity?: string; shasum?: string } }
+      | Array<{
+          version?: string;
+          dist?: { tarball?: string; integrity?: string; shasum?: string };
+        }>;
+    return Array.isArray(parsed) ? (parsed.at(-1) ?? null) : parsed;
+  } catch {
+    return null;
   }
-  return entries;
 }
 
 function collectChangedPluginPackageNames(params: {
@@ -253,21 +227,36 @@ function collectChangedPluginPackageNames(params: {
   );
 }
 
+function requireGithubPackageScope(options: CliOptions): string {
+  const scope = options.githubPackageScope?.trim();
+  if (!scope) {
+    fail("--github-package-scope is required");
+  }
+  return scope;
+}
+
 function buildCoreEntry(options: CliOptions): PackageInventoryEntry {
+  const publishedPackageName = resolvePolytroposGithubPublishedPackageName({
+    packageName: "openclaw",
+    githubScope: requireGithubPackageScope(options),
+  });
+  const publishedMetadata = npmViewJson(
+    `${publishedPackageName}@${readRootPackageVersion()}`,
+    options.packageRegistryUrl,
+  );
   return {
     packageName: "openclaw",
     packageType: "core",
-    baseVersion: null,
-    latestVersion: readRootPackageVersion(),
+    baseVersion: publishedMetadata?.version?.trim() || null,
+    latestVersion: publishedMetadata?.version?.trim() || readRootPackageVersion(),
     changed: true,
-    publishedInRun: Boolean(options.releaseTag),
-    artifactUrl: options.coreArtifactUrl,
+    publishedInRun: Boolean(publishedMetadata?.version),
+    artifactUrl: publishedMetadata?.dist?.tarball?.trim() || null,
     integrity:
-      options.coreArtifactFile && fs.existsSync(path.resolve(options.coreArtifactFile))
-        ? `sha256:${sha256File(path.resolve(options.coreArtifactFile))}`
-        : null,
+      publishedMetadata?.dist?.integrity?.trim() || publishedMetadata?.dist?.shasum?.trim() || null,
+    publishedPackageName,
     diffRoots: ["*"],
-    source: "github-actions-artifact",
+    source: "github-package-registry",
   };
 }
 
@@ -288,7 +277,6 @@ function buildPluginEntries(
   );
   const selectedPlugins =
     options.pluginSelection.length > 0 ? new Set(options.pluginSelection) : new Set(trackedPlugins);
-  const pluginArtifacts = readPluginArtifacts(options.pluginArtifactsFile);
   const changedPackages =
     options.baseRef && options.headRef
       ? collectChangedPluginPackageNames({
@@ -303,24 +291,31 @@ function buildPluginEntries(
     if (!candidate) {
       fail(`Tracked plugin package does not resolve to extensions/*/package.json: ${packageName}`);
     }
-    const artifact = pluginArtifacts.get(packageName);
-    const version = artifact?.version ?? candidate.packageJson.version?.trim() ?? null;
+    const publishedPackageName = resolvePolytroposGithubPublishedPackageName({
+      packageName,
+      githubScope: requireGithubPackageScope(options),
+    });
+    const version = candidate.packageJson.version?.trim() ?? null;
+    const publishedMetadata = version
+      ? npmViewJson(`${publishedPackageName}@${version}`, options.packageRegistryUrl)
+      : null;
     return {
       packageName,
       packageType: "plugin",
-      baseVersion: version,
-      latestVersion: version,
+      baseVersion: publishedMetadata?.version?.trim() || null,
+      latestVersion: publishedMetadata?.version?.trim() || version,
       changed: selectedPlugins.has(packageName) && changedPackages.has(packageName),
-      publishedInRun: Boolean(artifact),
-      artifactUrl: artifact?.artifactUrl ?? null,
+      publishedInRun: Boolean(publishedMetadata?.version),
+      artifactUrl: publishedMetadata?.dist?.tarball?.trim() || null,
       integrity:
-        artifact?.artifactFile && fs.existsSync(path.resolve(artifact.artifactFile))
-          ? `sha256:${sha256File(path.resolve(artifact.artifactFile))}`
-          : null,
+        publishedMetadata?.dist?.integrity?.trim() ||
+        publishedMetadata?.dist?.shasum?.trim() ||
+        null,
+      publishedPackageName,
       packageDir: candidate.packageDir,
       extensionId: candidate.extensionId,
       diffRoots: [candidate.packageDir],
-      source: "github-actions-artifact",
+      source: "github-package-registry",
     };
   });
 }

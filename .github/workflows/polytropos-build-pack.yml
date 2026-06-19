@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -15,6 +16,7 @@ env:
   OPENCLAW_TSDOWN_NODE_OPTIONS: "--max-old-space-size=6144"
   NODE_VERSION: "24.15.0"
   POLYTROPOS_PACKAGE_INVENTORY_ARTIFACT: polytropos-package-inventory
+  POLYTROPOS_GITHUB_PACKAGES_REGISTRY: https://npm.pkg.github.com
 
 jobs:
   resolve_release_target:
@@ -128,6 +130,20 @@ jobs:
       - name: Write build metadata
         run: |
           PNPM_VERSION="$(pnpm -v)" node -e "const fs=require(\"fs\"); const pkg=require(\"./package.json\"); fs.writeFileSync(\"build-metadata.json\", JSON.stringify({name:pkg.name, version:pkg.version, sha:process.env.GITHUB_SHA, node:process.version, node_options:process.env.NODE_OPTIONS, pnpm:process.env.PNPM_VERSION, releaseTag: process.env.RELEASE_TAG || null}, null, 2));"
+      - name: Configure GitHub Packages npm auth
+        if: github.ref_type == 'tag'
+        id: github_packages_auth
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          package_scope="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          {
+            printf '@%s:registry=%s\n' "${package_scope}" "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
+            printf '//npm.pkg.github.com/:_authToken=%s\n' "${NODE_AUTH_TOKEN}"
+            printf 'always-auth=true\n'
+          } > "${HOME}/.npmrc"
+          echo "package_scope=${package_scope}" >> "$GITHUB_OUTPUT"
       - name: Upload package artifact
         if: github.ref_type == 'tag'
         id: upload_core_artifact
@@ -137,6 +153,35 @@ jobs:
           path: ${{ steps.pack.outputs.tgz }}
           if-no-files-found: error
           retention-days: 14
+
+      - name: Prepare core GitHub Packages tarball
+        if: github.ref_type == 'tag'
+        id: prepare_core_github_package
+        run: |
+          set -euo pipefail
+          mkdir -p .local/github-packages
+          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw"
+          output_tgz=".local/github-packages/$(basename "${{ steps.pack.outputs.tgz }}")"
+          node scripts/polytropos-prepare-github-package-tarball.mjs \
+            --input "${{ steps.pack.outputs.tgz }}" \
+            --output "${output_tgz}" \
+            --published-name "${published_name}" \
+            --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git"
+          echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
+          echo "tgz=${output_tgz}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish core GitHub Package
+        if: github.ref_type == 'tag'
+        env:
+          PACKAGE_NAME: ${{ steps.prepare_core_github_package.outputs.published_name }}
+          PACKAGE_VERSION: ${{ steps.pack.outputs.version }}
+        run: |
+          set -euo pipefail
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
+            exit 0
+          fi
+          npm publish "${{ steps.prepare_core_github_package.outputs.tgz }}" --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
 
       - name: Pack acpx plugin artifact
         if: github.ref_type == 'tag'
@@ -154,15 +199,34 @@ jobs:
           echo "tgz=.local/plugin-packages/${tgz}" >> "$GITHUB_OUTPUT"
           echo "version=$(node -p \"require('./extensions/acpx/package.json').version\")" >> "$GITHUB_OUTPUT"
 
-      - name: Upload acpx plugin artifact
+      - name: Prepare acpx GitHub Packages tarball
         if: github.ref_type == 'tag'
-        id: upload_acpx_artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: openclaw-plugin-acpx-tgz-${{ env.RELEASE_TAG }}
-          path: ${{ steps.pack_acpx.outputs.tgz }}
-          if-no-files-found: error
-          retention-days: 14
+        id: prepare_acpx_github_package
+        run: |
+          set -euo pipefail
+          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/acpx"
+          output_tgz=".local/github-packages/$(basename "${{ steps.pack_acpx.outputs.tgz }}")"
+          node scripts/polytropos-prepare-github-package-tarball.mjs \
+            --input "${{ steps.pack_acpx.outputs.tgz }}" \
+            --output "${output_tgz}" \
+            --published-name "${published_name}" \
+            --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
+            --install-npm-spec "${published_name}"
+          echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
+          echo "tgz=${output_tgz}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish acpx GitHub Package
+        if: github.ref_type == 'tag'
+        env:
+          PACKAGE_NAME: ${{ steps.prepare_acpx_github_package.outputs.published_name }}
+          PACKAGE_VERSION: ${{ steps.pack_acpx.outputs.version }}
+        run: |
+          set -euo pipefail
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
+            exit 0
+          fi
+          npm publish "${{ steps.prepare_acpx_github_package.outputs.tgz }}" --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
 
       - name: Pack brave plugin artifact
         if: github.ref_type == 'tag'
@@ -180,15 +244,34 @@ jobs:
           echo "tgz=.local/plugin-packages/${tgz}" >> "$GITHUB_OUTPUT"
           echo "version=$(node -p \"require('./extensions/brave/package.json').version\")" >> "$GITHUB_OUTPUT"
 
-      - name: Upload brave plugin artifact
+      - name: Prepare brave GitHub Packages tarball
         if: github.ref_type == 'tag'
-        id: upload_brave_artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: openclaw-plugin-brave-tgz-${{ env.RELEASE_TAG }}
-          path: ${{ steps.pack_brave.outputs.tgz }}
-          if-no-files-found: error
-          retention-days: 14
+        id: prepare_brave_github_package
+        run: |
+          set -euo pipefail
+          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/brave-plugin"
+          output_tgz=".local/github-packages/$(basename "${{ steps.pack_brave.outputs.tgz }}")"
+          node scripts/polytropos-prepare-github-package-tarball.mjs \
+            --input "${{ steps.pack_brave.outputs.tgz }}" \
+            --output "${output_tgz}" \
+            --published-name "${published_name}" \
+            --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
+            --install-npm-spec "${published_name}"
+          echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
+          echo "tgz=${output_tgz}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish brave GitHub Package
+        if: github.ref_type == 'tag'
+        env:
+          PACKAGE_NAME: ${{ steps.prepare_brave_github_package.outputs.published_name }}
+          PACKAGE_VERSION: ${{ steps.pack_brave.outputs.version }}
+        run: |
+          set -euo pipefail
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
+            exit 0
+          fi
+          npm publish "${{ steps.prepare_brave_github_package.outputs.tgz }}" --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
 
       - name: Pack codex plugin artifact
         if: github.ref_type == 'tag'
@@ -206,15 +289,34 @@ jobs:
           echo "tgz=.local/plugin-packages/${tgz}" >> "$GITHUB_OUTPUT"
           echo "version=$(node -p \"require('./extensions/codex/package.json').version\")" >> "$GITHUB_OUTPUT"
 
-      - name: Upload codex plugin artifact
+      - name: Prepare codex GitHub Packages tarball
         if: github.ref_type == 'tag'
-        id: upload_codex_artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: openclaw-plugin-codex-tgz-${{ env.RELEASE_TAG }}
-          path: ${{ steps.pack_codex.outputs.tgz }}
-          if-no-files-found: error
-          retention-days: 14
+        id: prepare_codex_github_package
+        run: |
+          set -euo pipefail
+          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/codex"
+          output_tgz=".local/github-packages/$(basename "${{ steps.pack_codex.outputs.tgz }}")"
+          node scripts/polytropos-prepare-github-package-tarball.mjs \
+            --input "${{ steps.pack_codex.outputs.tgz }}" \
+            --output "${output_tgz}" \
+            --published-name "${published_name}" \
+            --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
+            --install-npm-spec "${published_name}"
+          echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
+          echo "tgz=${output_tgz}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish codex GitHub Package
+        if: github.ref_type == 'tag'
+        env:
+          PACKAGE_NAME: ${{ steps.prepare_codex_github_package.outputs.published_name }}
+          PACKAGE_VERSION: ${{ steps.pack_codex.outputs.version }}
+        run: |
+          set -euo pipefail
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
+            exit 0
+          fi
+          npm publish "${{ steps.prepare_codex_github_package.outputs.tgz }}" --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
 
       - name: Pack discord plugin artifact
         if: github.ref_type == 'tag'
@@ -232,15 +334,59 @@ jobs:
           echo "tgz=.local/plugin-packages/${tgz}" >> "$GITHUB_OUTPUT"
           echo "version=$(node -p \"require('./extensions/discord/package.json').version\")" >> "$GITHUB_OUTPUT"
 
-      - name: Upload discord plugin artifact
+      - name: Prepare discord GitHub Packages tarball
         if: github.ref_type == 'tag'
-        id: upload_discord_artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: openclaw-plugin-discord-tgz-${{ env.RELEASE_TAG }}
-          path: ${{ steps.pack_discord.outputs.tgz }}
-          if-no-files-found: error
-          retention-days: 14
+        id: prepare_discord_github_package
+        run: |
+          set -euo pipefail
+          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/discord"
+          output_tgz=".local/github-packages/$(basename "${{ steps.pack_discord.outputs.tgz }}")"
+          node scripts/polytropos-prepare-github-package-tarball.mjs \
+            --input "${{ steps.pack_discord.outputs.tgz }}" \
+            --output "${output_tgz}" \
+            --published-name "${published_name}" \
+            --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
+            --install-npm-spec "${published_name}"
+          echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
+          echo "tgz=${output_tgz}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish discord GitHub Package
+        if: github.ref_type == 'tag'
+        env:
+          PACKAGE_NAME: ${{ steps.prepare_discord_github_package.outputs.published_name }}
+          PACKAGE_VERSION: ${{ steps.pack_discord.outputs.version }}
+        run: |
+          set -euo pipefail
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
+            exit 0
+          fi
+          npm publish "${{ steps.prepare_discord_github_package.outputs.tgz }}" --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
+
+      - name: Wait for GitHub Packages visibility
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          specs=(
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw@${{ steps.pack.outputs.version }}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/acpx@${{ steps.pack_acpx.outputs.version }}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/brave-plugin@${{ steps.pack_brave.outputs.version }}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/codex@${{ steps.pack_codex.outputs.version }}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/discord@${{ steps.pack_discord.outputs.version }}"
+          )
+          for spec in "${specs[@]}"; do
+            for attempt in $(seq 1 12); do
+              if npm view "${spec}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
+                echo "Visible: ${spec}"
+                break
+              fi
+              if [ "${attempt}" -eq 12 ]; then
+                echo "Timed out waiting for ${spec} to appear in GitHub Packages." >&2
+                exit 1
+              fi
+              sleep 5
+            done
+          done
 
       - name: Generate package inventory
         if: github.ref_type == 'tag'
@@ -250,55 +396,8 @@ jobs:
           set -euo pipefail
 
           mkdir -p .local
-          resolve_artifact_url() {
-            local artifact_name="$1"
-            local artifact_id
-            artifact_id="$(
-              gh api \
-                "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
-                --jq ".artifacts[] | select(.name == \"${artifact_name}\") | .id" \
-                | head -n 1
-            )"
-            if [ -z "${artifact_id}" ]; then
-              echo "Failed to resolve artifact id for ${artifact_name}" >&2
-              exit 1
-            fi
-            printf 'https://github.com/%s/actions/runs/%s/artifacts/%s\n' \
-              "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}" "${artifact_id}"
-          }
-
-          core_artifact_url="$(resolve_artifact_url "openclaw-tgz-${RELEASE_TAG}")"
           tracked_plugins="$(jq -r '.[] | select(. != "openclaw")' .github/polytropos-tracked-packages.json | paste -sd, -)"
           previous_release_tag="$(git tag -l 'v*+poly.*' | grep -Fxv "${RELEASE_TAG}" | sort -V | tail -n 1 || true)"
-
-          cat > .local/polytropos-plugin-artifacts.json <<EOF
-          [
-            {
-              "packageName": "@openclaw/acpx",
-              "version": "${{ steps.pack_acpx.outputs.version }}",
-              "artifactFile": "${{ steps.pack_acpx.outputs.tgz }}",
-              "artifactUrl": "$(resolve_artifact_url "openclaw-plugin-acpx-tgz-${RELEASE_TAG}")"
-            },
-            {
-              "packageName": "@openclaw/brave-plugin",
-              "version": "${{ steps.pack_brave.outputs.version }}",
-              "artifactFile": "${{ steps.pack_brave.outputs.tgz }}",
-              "artifactUrl": "$(resolve_artifact_url "openclaw-plugin-brave-tgz-${RELEASE_TAG}")"
-            },
-            {
-              "packageName": "@openclaw/codex",
-              "version": "${{ steps.pack_codex.outputs.version }}",
-              "artifactFile": "${{ steps.pack_codex.outputs.tgz }}",
-              "artifactUrl": "$(resolve_artifact_url "openclaw-plugin-codex-tgz-${RELEASE_TAG}")"
-            },
-            {
-              "packageName": "@openclaw/discord",
-              "version": "${{ steps.pack_discord.outputs.version }}",
-              "artifactFile": "${{ steps.pack_discord.outputs.tgz }}",
-              "artifactUrl": "$(resolve_artifact_url "openclaw-plugin-discord-tgz-${RELEASE_TAG}")"
-            }
-          ]
-          EOF
 
           inventory_args=(
             --tracked-packages-file .github/polytropos-tracked-packages.json
@@ -306,9 +405,8 @@ jobs:
             --release-tag "${RELEASE_TAG}"
             --repository "${GITHUB_REPOSITORY}"
             --workflow-run-id "${GITHUB_RUN_ID}"
-            --core-artifact-url "${core_artifact_url}"
-            --core-artifact-file "${{ steps.pack.outputs.tgz }}"
-            --plugin-artifacts-file .local/polytropos-plugin-artifacts.json
+            --github-package-scope "${{ steps.github_packages_auth.outputs.package_scope }}"
+            --package-registry-url "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
             --plugins "${tracked_plugins}"
           )
           if [ -n "${previous_release_tag}" ]; then
