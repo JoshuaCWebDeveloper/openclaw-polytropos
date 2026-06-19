@@ -104,6 +104,8 @@ jobs:
         run: node scripts/build-all.mjs ciArtifacts
 
       - name: Build Control UI
+        env:
+          OPENCLAW_BUILD_ALL_NO_PNPM: "1"
         run: pnpm ui:build
       - name: Compute artifact tag
         run: |
