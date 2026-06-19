@@ -961,6 +961,7 @@ export async function updateNpmInstalledPlugins(params: {
   config: OpenClawConfig;
   logger?: PluginUpdateLogger;
   pluginIds?: string[];
+  forceReinstallPluginIds?: Set<string>;
   skipIds?: Set<string>;
   skipDisabledPlugins?: boolean;
   syncOfficialPluginInstalls?: boolean;
@@ -1215,7 +1216,9 @@ export async function updateNpmInstalledPlugins(params: {
         timeoutMs: params.timeoutMs,
       });
       if (metadataResult.ok) {
+        const forceReinstall = params.forceReinstallPluginIds?.has(pluginId) === true;
         if (
+          !forceReinstall &&
           !shouldBypassTrustedOfficialUnchangedNpmCheck({
             metadata: metadataResult.metadata,
             spec: effectiveSpec!,
@@ -1756,7 +1759,8 @@ export async function updateNpmInstalledPlugins(params: {
 
     const currentLabel = currentVersion ?? "unknown";
     const nextLabel = nextVersion ?? "unknown";
-    if (currentVersion && nextVersion && currentVersion === nextVersion) {
+    const forceReinstalled = params.forceReinstallPluginIds?.has(pluginId) === true;
+    if (currentVersion && nextVersion && currentVersion === nextVersion && !forceReinstalled) {
       outcomes.push({
         pluginId,
         status: "unchanged",
