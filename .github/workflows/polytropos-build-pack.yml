@@ -191,12 +191,11 @@ jobs:
           plugin_pack_dir="${GITHUB_WORKSPACE}/.local/plugin-packages"
           mkdir -p "${plugin_pack_dir}"
           node scripts/lib/plugin-npm-runtime-build.mjs extensions/acpx
-          pack_json="$(
+          tgz="$(
             OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
               node scripts/lib/plugin-npm-package-manifest.mjs --run extensions/acpx -- \
-              npm pack --json --ignore-scripts --pack-destination "${plugin_pack_dir}"
+              npm pack --ignore-scripts --pack-destination "${plugin_pack_dir}" | tail -n 1
           )"
-          tgz="$(printf '%s\n' "${pack_json}" | jq -r '.[0].filename')"
           version="$(node -p 'require("./extensions/acpx/package.json").version')"
           echo "tgz=${plugin_pack_dir}/${tgz}" >> "$GITHUB_OUTPUT"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
@@ -238,12 +237,11 @@ jobs:
           plugin_pack_dir="${GITHUB_WORKSPACE}/.local/plugin-packages"
           mkdir -p "${plugin_pack_dir}"
           node scripts/lib/plugin-npm-runtime-build.mjs extensions/brave
-          pack_json="$(
+          tgz="$(
             OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
               node scripts/lib/plugin-npm-package-manifest.mjs --run extensions/brave -- \
-              npm pack --json --ignore-scripts --pack-destination "${plugin_pack_dir}"
+              npm pack --ignore-scripts --pack-destination "${plugin_pack_dir}" | tail -n 1
           )"
-          tgz="$(printf '%s\n' "${pack_json}" | jq -r '.[0].filename')"
           version="$(node -p 'require("./extensions/brave/package.json").version')"
           echo "tgz=${plugin_pack_dir}/${tgz}" >> "$GITHUB_OUTPUT"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
@@ -285,12 +283,11 @@ jobs:
           plugin_pack_dir="${GITHUB_WORKSPACE}/.local/plugin-packages"
           mkdir -p "${plugin_pack_dir}"
           node scripts/lib/plugin-npm-runtime-build.mjs extensions/codex
-          pack_json="$(
+          tgz="$(
             OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
               node scripts/lib/plugin-npm-package-manifest.mjs --run extensions/codex -- \
-              npm pack --json --ignore-scripts --pack-destination "${plugin_pack_dir}"
+              npm pack --ignore-scripts --pack-destination "${plugin_pack_dir}" | tail -n 1
           )"
-          tgz="$(printf '%s\n' "${pack_json}" | jq -r '.[0].filename')"
           version="$(node -p 'require("./extensions/codex/package.json").version')"
           echo "tgz=${plugin_pack_dir}/${tgz}" >> "$GITHUB_OUTPUT"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
@@ -332,12 +329,11 @@ jobs:
           plugin_pack_dir="${GITHUB_WORKSPACE}/.local/plugin-packages"
           mkdir -p "${plugin_pack_dir}"
           node scripts/lib/plugin-npm-runtime-build.mjs extensions/discord
-          pack_json="$(
+          tgz="$(
             OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
               node scripts/lib/plugin-npm-package-manifest.mjs --run extensions/discord -- \
-              npm pack --json --ignore-scripts --pack-destination "${plugin_pack_dir}"
+              npm pack --ignore-scripts --pack-destination "${plugin_pack_dir}" | tail -n 1
           )"
-          tgz="$(printf '%s\n' "${pack_json}" | jq -r '.[0].filename')"
           version="$(node -p 'require("./extensions/discord/package.json").version')"
           echo "tgz=${plugin_pack_dir}/${tgz}" >> "$GITHUB_OUTPUT"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
