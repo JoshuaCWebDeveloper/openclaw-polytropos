@@ -111,8 +111,14 @@ jobs:
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+            release_package_version="$(
+              node -e 'const ref = process.argv[1]; const match = /^v(\d{4}\.\d+\.\d+)\+poly\.([1-9]\d*)$/.exec(ref); if (!match) { process.exit(1); } process.stdout.write(`${match[1]}-${match[2]}`);' \
+                "${GITHUB_REF_NAME}"
+            )"
+            echo "RELEASE_PACKAGE_VERSION=${release_package_version}" >> "$GITHUB_ENV"
           else
             echo "RELEASE_TAG=" >> "$GITHUB_ENV"
+            echo "RELEASE_PACKAGE_VERSION=" >> "$GITHUB_ENV"
           fi
       - name: Pack
         id: pack
@@ -168,6 +174,7 @@ jobs:
             --input "${{ steps.pack.outputs.tgz }}" \
             --output "${output_tgz}" \
             --published-name "${published_name}" \
+            --published-version "${RELEASE_PACKAGE_VERSION}" \
             --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git"
           echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
           echo "tgz=${output_tgz}" >> "$GITHUB_OUTPUT"
@@ -176,7 +183,7 @@ jobs:
         if: github.ref_type == 'tag'
         env:
           PACKAGE_NAME: ${{ steps.prepare_core_github_package.outputs.published_name }}
-          PACKAGE_VERSION: ${{ steps.pack.outputs.version }}
+          PACKAGE_VERSION: ${{ env.RELEASE_PACKAGE_VERSION }}
         run: |
           set -euo pipefail
           if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
@@ -213,6 +220,7 @@ jobs:
             --input "${{ steps.pack_acpx.outputs.tgz }}" \
             --output "${output_tgz}" \
             --published-name "${published_name}" \
+            --published-version "${RELEASE_PACKAGE_VERSION}" \
             --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
             --install-npm-spec "${published_name}"
           echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
@@ -222,7 +230,7 @@ jobs:
         if: github.ref_type == 'tag'
         env:
           PACKAGE_NAME: ${{ steps.prepare_acpx_github_package.outputs.published_name }}
-          PACKAGE_VERSION: ${{ steps.pack_acpx.outputs.version }}
+          PACKAGE_VERSION: ${{ env.RELEASE_PACKAGE_VERSION }}
         run: |
           set -euo pipefail
           if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
@@ -259,6 +267,7 @@ jobs:
             --input "${{ steps.pack_brave.outputs.tgz }}" \
             --output "${output_tgz}" \
             --published-name "${published_name}" \
+            --published-version "${RELEASE_PACKAGE_VERSION}" \
             --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
             --install-npm-spec "${published_name}"
           echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
@@ -268,7 +277,7 @@ jobs:
         if: github.ref_type == 'tag'
         env:
           PACKAGE_NAME: ${{ steps.prepare_brave_github_package.outputs.published_name }}
-          PACKAGE_VERSION: ${{ steps.pack_brave.outputs.version }}
+          PACKAGE_VERSION: ${{ env.RELEASE_PACKAGE_VERSION }}
         run: |
           set -euo pipefail
           if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
@@ -305,6 +314,7 @@ jobs:
             --input "${{ steps.pack_codex.outputs.tgz }}" \
             --output "${output_tgz}" \
             --published-name "${published_name}" \
+            --published-version "${RELEASE_PACKAGE_VERSION}" \
             --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
             --install-npm-spec "${published_name}"
           echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
@@ -314,7 +324,7 @@ jobs:
         if: github.ref_type == 'tag'
         env:
           PACKAGE_NAME: ${{ steps.prepare_codex_github_package.outputs.published_name }}
-          PACKAGE_VERSION: ${{ steps.pack_codex.outputs.version }}
+          PACKAGE_VERSION: ${{ env.RELEASE_PACKAGE_VERSION }}
         run: |
           set -euo pipefail
           if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
@@ -351,6 +361,7 @@ jobs:
             --input "${{ steps.pack_discord.outputs.tgz }}" \
             --output "${output_tgz}" \
             --published-name "${published_name}" \
+            --published-version "${RELEASE_PACKAGE_VERSION}" \
             --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
             --install-npm-spec "${published_name}"
           echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
@@ -360,7 +371,7 @@ jobs:
         if: github.ref_type == 'tag'
         env:
           PACKAGE_NAME: ${{ steps.prepare_discord_github_package.outputs.published_name }}
-          PACKAGE_VERSION: ${{ steps.pack_discord.outputs.version }}
+          PACKAGE_VERSION: ${{ env.RELEASE_PACKAGE_VERSION }}
         run: |
           set -euo pipefail
           if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
@@ -374,11 +385,11 @@ jobs:
         run: |
           set -euo pipefail
           specs=(
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-core@${{ steps.pack.outputs.version }}"
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-acpx@${{ steps.pack_acpx.outputs.version }}"
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-brave-plugin@${{ steps.pack_brave.outputs.version }}"
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-codex@${{ steps.pack_codex.outputs.version }}"
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-discord@${{ steps.pack_discord.outputs.version }}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-core@${RELEASE_PACKAGE_VERSION}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-acpx@${RELEASE_PACKAGE_VERSION}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-brave-plugin@${RELEASE_PACKAGE_VERSION}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-codex@${RELEASE_PACKAGE_VERSION}"
+            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-discord@${RELEASE_PACKAGE_VERSION}"
           )
           for spec in "${specs[@]}"; do
             for attempt in $(seq 1 12); do
@@ -409,6 +420,7 @@ jobs:
             --tracked-packages-file .github/polytropos-tracked-packages.json
             --output .local/polytropos-package-inventory.json
             --release-tag "${RELEASE_TAG}"
+            --published-version "${RELEASE_PACKAGE_VERSION}"
             --repository "${GITHUB_REPOSITORY}"
             --workflow-run-id "${GITHUB_RUN_ID}"
             --github-package-scope "${{ steps.github_packages_auth.outputs.package_scope }}"

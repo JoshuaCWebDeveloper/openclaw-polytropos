@@ -26,11 +26,12 @@ function main() {
   const input = readArg(args, "--input");
   const output = readArg(args, "--output");
   const publishedName = readArg(args, "--published-name");
+  const publishedVersion = readArg(args, "--published-version");
   const repositoryUrl = readArg(args, "--repository-url");
   const installNpmSpec = readArg(args, "--install-npm-spec");
-  if (!input || !output || !publishedName || !repositoryUrl) {
+  if (!input || !output || !publishedName || !publishedVersion || !repositoryUrl) {
     fail(
-      "usage: node scripts/polytropos-prepare-github-package-tarball.mjs --input <tgz> --output <tgz> --published-name <name> --repository-url <url> [--install-npm-spec <spec>]",
+      "usage: node scripts/polytropos-prepare-github-package-tarball.mjs --input <tgz> --output <tgz> --published-name <name> --published-version <version> --repository-url <url> [--install-npm-spec <spec>]",
     );
   }
 
@@ -43,6 +44,7 @@ function main() {
     const packageJsonPath = path.join(extractDir, "package", "package.json");
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
     packageJson.name = publishedName;
+    packageJson.version = publishedVersion;
     packageJson.repository = { type: "git", url: repositoryUrl };
     packageJson.publishConfig = {
       ...(packageJson.publishConfig && typeof packageJson.publishConfig === "object"

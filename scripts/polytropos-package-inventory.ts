@@ -13,6 +13,7 @@ import {
 import {
   GITHUB_PACKAGES_REGISTRY_URL,
   resolvePolytroposGithubPublishedPackageName,
+  resolvePolytroposPackageVersionFromReleaseTag,
 } from "./lib/polytropos-github-packages.ts";
 
 type PackageInventoryEntry = {
@@ -48,6 +49,7 @@ type CliOptions = {
   workflowRunId: string | null;
   githubPackageScope: string | null;
   packageRegistryUrl: string;
+  publishedVersion: string | null;
   pluginSelection: string[];
   baseRef: string | null;
   headRef: string | null;
@@ -74,6 +76,7 @@ function parseArgs(argv: string[]): CliOptions {
   let workflowRunId: string | null = null;
   let githubPackageScope: string | null = null;
   let packageRegistryUrl = GITHUB_PACKAGES_REGISTRY_URL;
+  let publishedVersion: string | null = null;
   let baseRef: string | null = null;
   let headRef: string | null = null;
   let pluginSelection: string[] = [];
@@ -110,6 +113,10 @@ function parseArgs(argv: string[]): CliOptions {
         packageRegistryUrl = next ?? fail("--package-registry-url requires a value");
         index += 1;
         break;
+      case "--published-version":
+        publishedVersion = next ?? fail("--published-version requires a value");
+        index += 1;
+        break;
       case "--base-ref":
         baseRef = next ?? fail("--base-ref requires a value");
         index += 1;
@@ -139,6 +146,7 @@ function parseArgs(argv: string[]): CliOptions {
     workflowRunId,
     githubPackageScope,
     packageRegistryUrl,
+    publishedVersion,
     pluginSelection,
     baseRef,
     headRef,
@@ -235,20 +243,33 @@ function requireGithubPackageScope(options: CliOptions): string {
   return scope;
 }
 
+function resolvePublishedVersion(options: CliOptions): string {
+  const explicit = options.publishedVersion?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  const releaseTag = options.releaseTag?.trim();
+  if (releaseTag) {
+    return resolvePolytroposPackageVersionFromReleaseTag(releaseTag);
+  }
+  return readRootPackageVersion();
+}
+
 function buildCoreEntry(options: CliOptions): PackageInventoryEntry {
+  const publishedVersion = resolvePublishedVersion(options);
   const publishedPackageName = resolvePolytroposGithubPublishedPackageName({
     packageName: "openclaw",
     githubScope: requireGithubPackageScope(options),
   });
   const publishedMetadata = npmViewJson(
-    `${publishedPackageName}@${readRootPackageVersion()}`,
+    `${publishedPackageName}@${publishedVersion}`,
     options.packageRegistryUrl,
   );
   return {
     packageName: "openclaw",
     packageType: "core",
     baseVersion: publishedMetadata?.version?.trim() || null,
-    latestVersion: publishedMetadata?.version?.trim() || readRootPackageVersion(),
+    latestVersion: publishedMetadata?.version?.trim() || publishedVersion,
     changed: true,
     publishedInRun: Boolean(publishedMetadata?.version),
     artifactUrl: publishedMetadata?.dist?.tarball?.trim() || null,
@@ -277,6 +298,7 @@ function buildPluginEntries(
   );
   const selectedPlugins =
     options.pluginSelection.length > 0 ? new Set(options.pluginSelection) : new Set(trackedPlugins);
+  const publishedVersion = resolvePublishedVersion(options);
   const changedPackages =
     options.baseRef && options.headRef
       ? collectChangedPluginPackageNames({
@@ -295,15 +317,14 @@ function buildPluginEntries(
       packageName,
       githubScope: requireGithubPackageScope(options),
     });
-    const version = candidate.packageJson.version?.trim() ?? null;
-    const publishedMetadata = version
-      ? npmViewJson(`${publishedPackageName}@${version}`, options.packageRegistryUrl)
+    const publishedMetadata = publishedVersion
+      ? npmViewJson(`${publishedPackageName}@${publishedVersion}`, options.packageRegistryUrl)
       : null;
     return {
       packageName,
       packageType: "plugin",
       baseVersion: publishedMetadata?.version?.trim() || null,
-      latestVersion: publishedMetadata?.version?.trim() || version,
+      latestVersion: publishedMetadata?.version?.trim() || publishedVersion,
       changed: selectedPlugins.has(packageName) && changedPackages.has(packageName),
       publishedInRun: Boolean(publishedMetadata?.version),
       artifactUrl: publishedMetadata?.dist?.tarball?.trim() || null,
