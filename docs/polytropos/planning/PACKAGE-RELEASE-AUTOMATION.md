@@ -8,11 +8,10 @@ Date: 2026-06-18 UTC
 Make Polytropos core and every tracked Polytropos plugin follow one release automation model:
 
 - maintain a workflow-local tracked package list
-- resolve the latest published version for each tracked package
-- treat that version as the previous Polytropos release version for that package
+- derive tracked package versions from the tagged source checkout
+- treat the previous Polytropos release tag as the diff base for tracked packages
 - diff package-owned source since that base ref
-- only build/publish packages that changed
-- emit one workflow artifact listing the latest installable artifact for every tracked package
+- emit one workflow artifact listing the installable GitHub Actions artifact for every tracked package
 - let downstream install core and plugins from that package inventory
 
 ## Current State
@@ -21,7 +20,7 @@ Make Polytropos core and every tracked Polytropos plugin follow one release auto
 
 - Repo: `openclaw-polytropos`
 - Current packaging workflow: `.github/workflows/polytropos-build-pack.yml`
-- Current output: a release-tagged package inventory artifact plus the package artifacts it references
+- Current output: a release-tagged package inventory artifact plus same-run GitHub Actions package artifacts
 - Current downstream install path: `scripts/polytropos-release.mjs`
 - Current release script contract: find workflow run, download release inventory, stage in `~/polytropos/releases/`, install from that inventory
 
@@ -61,26 +60,27 @@ Everything else should be derived from existing repo/package metadata and code l
 - relevant source directories to compare
 - artifact naming/locator shape
 
-### 2) Published version -> release mapping
+### 2) Release tag -> package mapping
 
-For this proposal, the Polytropos release is the package version.
+For this proposal, the Polytropos release tag is the workflow's source of truth.
 
 That means:
 
-- latest package version from GitHub Packages is the previous Polytropos release version for that package
-- the workflow can use that version directly to determine the base ref
+- the tracked package version comes from the tagged source checkout in this repo
+- the previous Polytropos release tag is the base ref for change detection
+- the inventory points at package artifacts uploaded by that release workflow run
 
-No extra release-tag mapping field is required if that invariant holds.
+No registry lookup is required for the first pass if that invariant holds.
 
 ### 3) Change detection
 
 For each tracked package:
 
-1. Resolve latest published package version from GitHub Packages
-2. Treat that version as the previous Polytropos release/base version for that package
+1. Resolve the tracked package version from the tagged source checkout
+2. Treat the previous Polytropos release tag as the base ref for that package
 3. Diff the relevant source directories for that package from that base ref to `HEAD`
-4. Build/publish only if changed
-5. Otherwise carry forward the already-published package artifact reference
+4. Build/package tracked artifacts for the release run
+5. Record the resulting GitHub Actions artifact locator in the inventory
 
 Default implementation for plugin packages:
 
@@ -113,10 +113,10 @@ Known shared/generated paths worth treating that way:
 Apply the same model to core:
 
 - treat `openclaw` as one tracked package
-- publish it to GitHub Packages
-- only publish when relevant core source paths changed since the prior published Polytropos release for core
+- package it in the tagged GitHub Actions workflow run
+- diff it against the prior Polytropos release tag for change reporting
 - keep the workflow output as a full package inventory, not just one tarball
-- if core did not change, carry forward the previous core locator in the release inventory instead of forcing a new core package
+- keep the local release artifact as the inventory even when the core tarball is unchanged
 
 Default safe rule for core:
 
@@ -132,10 +132,10 @@ Each workflow run should emit one canonical inventory artifact, e.g. `v2026.6.1+
 - base version used for diffing
 - changed in this run
 - published in this run
-- direct artifact download URL
+- GitHub Actions artifact locator from the same workflow run
 - integrity metadata
 
-Unchanged packages should still appear in the inventory with their latest known installable locator.
+Tracked packages should still appear in the inventory with their same-run installable locator.
 That inventory file becomes the local release artifact.
 
 ### 6) Downstream installer model
@@ -178,7 +178,7 @@ The proposal says downstream will download plugin packages and install them "in 
 
 ## Recommendation
 
-The direction makes sense, but the first milestone should be the package inventory contract, not the registry backend.
+The direction makes sense, and the first milestone should stay the package inventory contract rather than any registry backend.
 
 Recommended order:
 

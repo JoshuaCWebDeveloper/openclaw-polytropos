@@ -23,7 +23,7 @@ type PackageInventoryEntry = {
   packageDir?: string;
   extensionId?: string;
   diffRoots: string[];
-  source: "github-actions-artifact" | "npm-registry";
+  source: "github-actions-artifact";
 };
 
 type PackageInventory = {
@@ -43,9 +43,17 @@ type CliOptions = {
   workflowRunId: string | null;
   coreArtifactUrl: string | null;
   coreArtifactFile: string | null;
+  pluginArtifactsFile: string | null;
   pluginSelection: string[];
   baseRef: string | null;
   headRef: string | null;
+};
+
+type PluginArtifactMetadata = {
+  packageName: string;
+  artifactUrl: string;
+  artifactFile?: string | null;
+  version?: string | null;
 };
 
 const SHARED_PLUGIN_PATHS = [
@@ -69,6 +77,7 @@ function parseArgs(argv: string[]): CliOptions {
   let workflowRunId: string | null = null;
   let coreArtifactUrl: string | null = null;
   let coreArtifactFile: string | null = null;
+  let pluginArtifactsFile: string | null = null;
   let baseRef: string | null = null;
   let headRef: string | null = null;
   let pluginSelection: string[] = [];
@@ -105,6 +114,10 @@ function parseArgs(argv: string[]): CliOptions {
         coreArtifactFile = next ?? fail("--core-artifact-file requires a value");
         index += 1;
         break;
+      case "--plugin-artifacts-file":
+        pluginArtifactsFile = next ?? fail("--plugin-artifacts-file requires a value");
+        index += 1;
+        break;
       case "--base-ref":
         baseRef = next ?? fail("--base-ref requires a value");
         index += 1;
@@ -134,6 +147,7 @@ function parseArgs(argv: string[]): CliOptions {
     workflowRunId,
     coreArtifactUrl,
     coreArtifactFile,
+    pluginArtifactsFile,
     pluginSelection,
     baseRef,
     headRef,
@@ -167,28 +181,44 @@ function sha256File(filePath: string): string {
   return execFileSync("sha256sum", [filePath], { encoding: "utf8" }).trim().split(/\s+/)[0] ?? "";
 }
 
-function npmViewJson(spec: string): {
-  version?: string;
-  dist?: { tarball?: string; integrity?: string; shasum?: string };
-} | null {
-  try {
-    const raw = execFileSync("npm", ["view", spec, "--json"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as
-      | { version?: string; dist?: { tarball?: string; integrity?: string; shasum?: string } }
-      | Array<{
-          version?: string;
-          dist?: { tarball?: string; integrity?: string; shasum?: string };
-        }>;
-    return Array.isArray(parsed) ? (parsed.at(-1) ?? null) : parsed;
-  } catch {
-    return null;
+function readPluginArtifacts(
+  filePath: string | null,
+): Map<string, Required<Pick<PluginArtifactMetadata, "artifactUrl">> & PluginArtifactMetadata> {
+  if (!filePath) {
+    return new Map();
   }
+  const resolved = path.resolve(filePath);
+  const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as unknown;
+  if (!Array.isArray(parsed)) {
+    fail(`Plugin artifacts file must be a JSON array: ${resolved}`);
+  }
+  const entries = new Map<
+    string,
+    Required<Pick<PluginArtifactMetadata, "artifactUrl">> & PluginArtifactMetadata
+  >();
+  for (const entry of parsed) {
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      typeof entry.packageName !== "string" ||
+      !entry.packageName.trim() ||
+      typeof entry.artifactUrl !== "string" ||
+      !entry.artifactUrl.trim()
+    ) {
+      fail(`Plugin artifacts file contains an invalid entry: ${resolved}`);
+    }
+    entries.set(entry.packageName.trim(), {
+      packageName: entry.packageName.trim(),
+      artifactUrl: entry.artifactUrl.trim(),
+      artifactFile:
+        typeof entry.artifactFile === "string" && entry.artifactFile.trim()
+          ? entry.artifactFile.trim()
+          : null,
+      version:
+        typeof entry.version === "string" && entry.version.trim() ? entry.version.trim() : null,
+    });
+  }
+  return entries;
 }
 
 function collectChangedPluginPackageNames(params: {
@@ -258,6 +288,7 @@ function buildPluginEntries(
   );
   const selectedPlugins =
     options.pluginSelection.length > 0 ? new Set(options.pluginSelection) : new Set(trackedPlugins);
+  const pluginArtifacts = readPluginArtifacts(options.pluginArtifactsFile);
   const changedPackages =
     options.baseRef && options.headRef
       ? collectChangedPluginPackageNames({
@@ -272,20 +303,24 @@ function buildPluginEntries(
     if (!candidate) {
       fail(`Tracked plugin package does not resolve to extensions/*/package.json: ${packageName}`);
     }
-    const npmMetadata = npmViewJson(packageName);
+    const artifact = pluginArtifacts.get(packageName);
+    const version = artifact?.version ?? candidate.packageJson.version?.trim() ?? null;
     return {
       packageName,
       packageType: "plugin",
-      baseVersion: npmMetadata?.version?.trim() || null,
-      latestVersion: npmMetadata?.version?.trim() || null,
+      baseVersion: version,
+      latestVersion: version,
       changed: selectedPlugins.has(packageName) && changedPackages.has(packageName),
-      publishedInRun: false,
-      artifactUrl: npmMetadata?.dist?.tarball?.trim() || null,
-      integrity: npmMetadata?.dist?.integrity?.trim() || npmMetadata?.dist?.shasum?.trim() || null,
+      publishedInRun: Boolean(artifact),
+      artifactUrl: artifact?.artifactUrl ?? null,
+      integrity:
+        artifact?.artifactFile && fs.existsSync(path.resolve(artifact.artifactFile))
+          ? `sha256:${sha256File(path.resolve(artifact.artifactFile))}`
+          : null,
       packageDir: candidate.packageDir,
       extensionId: candidate.extensionId,
       diffRoots: [candidate.packageDir],
-      source: "npm-registry",
+      source: "github-actions-artifact",
     };
   });
 }

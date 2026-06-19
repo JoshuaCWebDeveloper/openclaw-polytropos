@@ -130,6 +130,7 @@ jobs:
           PNPM_VERSION="$(pnpm -v)" node -e "const fs=require(\"fs\"); const pkg=require(\"./package.json\"); fs.writeFileSync(\"build-metadata.json\", JSON.stringify({name:pkg.name, version:pkg.version, sha:process.env.GITHUB_SHA, node:process.version, node_options:process.env.NODE_OPTIONS, pnpm:process.env.PNPM_VERSION, releaseTag: process.env.RELEASE_TAG || null}, null, 2));"
       - name: Upload package artifact
         if: github.ref_type == 'tag'
+        id: upload_core_artifact
         uses: actions/upload-artifact@v4
         with:
           name: openclaw-tgz-${{ env.RELEASE_TAG }}
@@ -137,30 +138,167 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Pack acpx plugin artifact
+        if: github.ref_type == 'tag'
+        id: pack_acpx
+        run: |
+          set -euo pipefail
+          mkdir -p .local/plugin-packages
+          node scripts/lib/plugin-npm-runtime-build.mjs extensions/acpx
+          pack_json="$(
+            OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
+              node scripts/lib/plugin-npm-package-manifest.mjs --run extensions/acpx -- \
+              npm pack --json --ignore-scripts --pack-destination .local/plugin-packages
+          )"
+          tgz="$(printf '%s\n' "${pack_json}" | jq -r '.[0].filename')"
+          echo "tgz=.local/plugin-packages/${tgz}" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p \"require('./extensions/acpx/package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload acpx plugin artifact
+        if: github.ref_type == 'tag'
+        id: upload_acpx_artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openclaw-plugin-acpx-tgz-${{ env.RELEASE_TAG }}
+          path: ${{ steps.pack_acpx.outputs.tgz }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Pack brave plugin artifact
+        if: github.ref_type == 'tag'
+        id: pack_brave
+        run: |
+          set -euo pipefail
+          mkdir -p .local/plugin-packages
+          node scripts/lib/plugin-npm-runtime-build.mjs extensions/brave
+          pack_json="$(
+            OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
+              node scripts/lib/plugin-npm-package-manifest.mjs --run extensions/brave -- \
+              npm pack --json --ignore-scripts --pack-destination .local/plugin-packages
+          )"
+          tgz="$(printf '%s\n' "${pack_json}" | jq -r '.[0].filename')"
+          echo "tgz=.local/plugin-packages/${tgz}" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p \"require('./extensions/brave/package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload brave plugin artifact
+        if: github.ref_type == 'tag'
+        id: upload_brave_artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openclaw-plugin-brave-tgz-${{ env.RELEASE_TAG }}
+          path: ${{ steps.pack_brave.outputs.tgz }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Pack codex plugin artifact
+        if: github.ref_type == 'tag'
+        id: pack_codex
+        run: |
+          set -euo pipefail
+          mkdir -p .local/plugin-packages
+          node scripts/lib/plugin-npm-runtime-build.mjs extensions/codex
+          pack_json="$(
+            OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
+              node scripts/lib/plugin-npm-package-manifest.mjs --run extensions/codex -- \
+              npm pack --json --ignore-scripts --pack-destination .local/plugin-packages
+          )"
+          tgz="$(printf '%s\n' "${pack_json}" | jq -r '.[0].filename')"
+          echo "tgz=.local/plugin-packages/${tgz}" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p \"require('./extensions/codex/package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload codex plugin artifact
+        if: github.ref_type == 'tag'
+        id: upload_codex_artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openclaw-plugin-codex-tgz-${{ env.RELEASE_TAG }}
+          path: ${{ steps.pack_codex.outputs.tgz }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Pack discord plugin artifact
+        if: github.ref_type == 'tag'
+        id: pack_discord
+        run: |
+          set -euo pipefail
+          mkdir -p .local/plugin-packages
+          node scripts/lib/plugin-npm-runtime-build.mjs extensions/discord
+          pack_json="$(
+            OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
+              node scripts/lib/plugin-npm-package-manifest.mjs --run extensions/discord -- \
+              npm pack --json --ignore-scripts --pack-destination .local/plugin-packages
+          )"
+          tgz="$(printf '%s\n' "${pack_json}" | jq -r '.[0].filename')"
+          echo "tgz=.local/plugin-packages/${tgz}" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p \"require('./extensions/discord/package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload discord plugin artifact
+        if: github.ref_type == 'tag'
+        id: upload_discord_artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openclaw-plugin-discord-tgz-${{ env.RELEASE_TAG }}
+          path: ${{ steps.pack_discord.outputs.tgz }}
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Generate package inventory
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
-          PACKAGE_ARTIFACT_NAME: openclaw-tgz-${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
 
           mkdir -p .local
+          resolve_artifact_url() {
+            local artifact_name="$1"
+            local artifact_id
+            artifact_id="$(
+              gh api \
+                "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+                --jq ".artifacts[] | select(.name == \"${artifact_name}\") | .id" \
+                | head -n 1
+            )"
+            if [ -z "${artifact_id}" ]; then
+              echo "Failed to resolve artifact id for ${artifact_name}" >&2
+              exit 1
+            fi
+            printf 'https://github.com/%s/actions/runs/%s/artifacts/%s\n' \
+              "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}" "${artifact_id}"
+          }
 
-          artifact_id="$(
-            gh api \
-              "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
-              --jq ".artifacts[] | select(.name == \"${PACKAGE_ARTIFACT_NAME}\") | .id" \
-              | head -n 1
-          )"
-          if [ -z "${artifact_id}" ]; then
-            echo "Failed to resolve artifact id for ${PACKAGE_ARTIFACT_NAME}" >&2
-            exit 1
-          fi
-
-          core_artifact_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts/${artifact_id}"
+          core_artifact_url="$(resolve_artifact_url "openclaw-tgz-${RELEASE_TAG}")"
           tracked_plugins="$(jq -r '.[] | select(. != "openclaw")' .github/polytropos-tracked-packages.json | paste -sd, -)"
           previous_release_tag="$(git tag -l 'v*+poly.*' | grep -Fxv "${RELEASE_TAG}" | sort -V | tail -n 1 || true)"
+
+          cat > .local/polytropos-plugin-artifacts.json <<EOF
+          [
+            {
+              "packageName": "@openclaw/acpx",
+              "version": "${{ steps.pack_acpx.outputs.version }}",
+              "artifactFile": "${{ steps.pack_acpx.outputs.tgz }}",
+              "artifactUrl": "$(resolve_artifact_url "openclaw-plugin-acpx-tgz-${RELEASE_TAG}")"
+            },
+            {
+              "packageName": "@openclaw/brave-plugin",
+              "version": "${{ steps.pack_brave.outputs.version }}",
+              "artifactFile": "${{ steps.pack_brave.outputs.tgz }}",
+              "artifactUrl": "$(resolve_artifact_url "openclaw-plugin-brave-tgz-${RELEASE_TAG}")"
+            },
+            {
+              "packageName": "@openclaw/codex",
+              "version": "${{ steps.pack_codex.outputs.version }}",
+              "artifactFile": "${{ steps.pack_codex.outputs.tgz }}",
+              "artifactUrl": "$(resolve_artifact_url "openclaw-plugin-codex-tgz-${RELEASE_TAG}")"
+            },
+            {
+              "packageName": "@openclaw/discord",
+              "version": "${{ steps.pack_discord.outputs.version }}",
+              "artifactFile": "${{ steps.pack_discord.outputs.tgz }}",
+              "artifactUrl": "$(resolve_artifact_url "openclaw-plugin-discord-tgz-${RELEASE_TAG}")"
+            }
+          ]
+          EOF
 
           inventory_args=(
             --tracked-packages-file .github/polytropos-tracked-packages.json
@@ -170,6 +308,7 @@ jobs:
             --workflow-run-id "${GITHUB_RUN_ID}"
             --core-artifact-url "${core_artifact_url}"
             --core-artifact-file "${{ steps.pack.outputs.tgz }}"
+            --plugin-artifacts-file .local/polytropos-plugin-artifacts.json
             --plugins "${tracked_plugins}"
           )
           if [ -n "${previous_release_tag}" ]; then
