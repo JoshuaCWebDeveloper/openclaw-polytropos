@@ -125,7 +125,7 @@ function assertReleaseStoreConsistent(relRoot) {
   for (const e of entries) {
     if (!e.isFile()) continue;
     if (!e.name.startsWith("v") || !e.name.endsWith(".tgz")) continue;
-    const m = e.name.match(/^v(.+?)(?:-poly\.\d+)?\.tgz$/);
+    const m = e.name.match(/^v(.+?)(?:(?:\+|-)?poly\.\d+)?\.tgz$/);
     if (!m) continue;
     const expected = m[1];
     const full = path.join(relRoot, e.name);
@@ -241,11 +241,11 @@ function inferGhRepoFromOrigin() {
 function computeNextReleaseTag() {
   // base version comes from package.json
   const ver = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
-  // next poly is global max + 1
-  const tags = sh("git", ["tag", "-l", "v*-poly.*"]);
+  // next poly is global max + 1 across both old +poly and new -poly formats
+  const tags = sh("git", ["tag", "-l", "v*poly.*"]);
   let maxN = -1;
   for (const line of tags.split(/\r?\n/)) {
-    const m = line.match(/-poly\.(\d+)$/);
+    const m = line.match(/(?:\+|-)poly\.(\d+)$/);
     if (!m) continue;
     const n = Number(m[1]);
     if (Number.isFinite(n) && n > maxN) maxN = n;
@@ -255,7 +255,7 @@ function computeNextReleaseTag() {
 }
 
 function parseReleaseTagPolyNumber(tag) {
-  const match = /^v.+-poly\.(\d+)$/.exec(tag);
+  const match = /^v.+(?:\+|-)poly\.(\d+)$/.exec(tag);
   return match ? Number(match[1]) : null;
 }
 
@@ -264,7 +264,7 @@ function findPreviousReleaseTag(currentTag) {
   if (!Number.isFinite(currentPoly)) {
     return null;
   }
-  const tags = sh("git", ["tag", "-l", "v*-poly.*"])
+  const tags = sh("git", ["tag", "-l", "v*poly.*"])
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
