@@ -13,9 +13,11 @@
  */
 
 import { execFileSync, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import JSON5 from "json5";
 import { buildInstallCommand } from "./lib/polytropos-release-install.mjs";
 import { buildPostInstallPluginSyncCommand } from "./lib/polytropos-release-plugin-sync.mjs";
 
@@ -67,6 +69,29 @@ function timestampForFilename(d = new Date()) {
 
 function resolveHome() {
   return process.env.HOME || "/home/ec2-user";
+}
+
+function resolveHomePath(input, env = process.env) {
+  if (input === "~") {
+    return env.HOME || resolveHome();
+  }
+  if (input.startsWith("~/")) {
+    return path.join(env.HOME || resolveHome(), input.slice(2));
+  }
+  return path.resolve(input);
+}
+
+function resolveLiveConfigPath(env = process.env) {
+  const explicit = env.OPENCLAW_CONFIG_PATH?.trim();
+  if (explicit) {
+    return resolveHomePath(explicit, env);
+  }
+  const stateDir = env.OPENCLAW_STATE_DIR?.trim();
+  if (stateDir) {
+    return path.join(resolveHomePath(stateDir, env), "openclaw.json");
+  }
+  const home = env.HOME || resolveHome();
+  return path.join(home, ".openclaw", "openclaw.json");
 }
 
 function defaultLogPath() {
@@ -192,6 +217,10 @@ async function shTee(logStream, cmd, args, opts = {}) {
   });
 }
 
+function commandString(cmd, args) {
+  return [cmd, ...args].join(" ");
+}
+
 function sleepMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -305,19 +334,22 @@ function findPreviousReleaseTag(currentTag) {
   return best;
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   // Supported:
-  //   node scripts/polytropos-release.mjs release [--tag v<ver>-poly.<N>] [--repo <owner/repo>] [--workflow <workflow.yml>] [--log <path>]
-  //   node scripts/polytropos-release.mjs install <tgz> [--log <path>]
+  //   node scripts/polytropos-release.mjs release [--tag v<ver>-poly.<N>] [--run-id <id>] [--rerun-run] [--repo <owner/repo>] [--workflow <workflow.yml>] [--log <path>]
+  //   node scripts/polytropos-release.mjs install <tgz> [--log <path>] [--plugin-sync-config auto|normal|sanitized-temp]
   const args = argv.slice(2);
   const cmd = args[0] || "";
   let logPath = process.env.POLYTROPOS_RELEASE_LOG || defaultLogPath();
   let repo = null;
   let workflow = null;
   let releaseTag = null;
+  let runId = null;
+  let rerunRun = false;
   let installTgz = null;
   let baseRef = null;
   let headRef = null;
+  let pluginSyncConfig = "auto";
 
   if (cmd === "install") {
     installTgz = args[1] || null;
@@ -364,6 +396,17 @@ function parseArgs(argv) {
       i++;
       continue;
     }
+    if (a === "--run-id") {
+      const v = args[i + 1];
+      if (!v) fail("--run-id requires a GitHub Actions run id");
+      runId = v;
+      i++;
+      continue;
+    }
+    if (a === "--rerun-run") {
+      rerunRun = true;
+      continue;
+    }
     if (a === "--base-ref") {
       const v = args[i + 1];
       if (!v) {
@@ -382,8 +425,29 @@ function parseArgs(argv) {
       i++;
       continue;
     }
+    if (a === "--plugin-sync-config") {
+      const v = args[i + 1];
+      if (!["auto", "normal", "sanitized-temp"].includes(v)) {
+        fail("--plugin-sync-config requires auto, normal, or sanitized-temp");
+      }
+      pluginSyncConfig = v;
+      i++;
+      continue;
+    }
     if (a === "--help" || a === "-h") {
-      return { cmd: "--help", logPath, repo, workflow, releaseTag, installTgz, baseRef, headRef };
+      return {
+        cmd: "--help",
+        logPath,
+        repo,
+        workflow,
+        releaseTag,
+        runId,
+        rerunRun,
+        installTgz,
+        baseRef,
+        headRef,
+        pluginSyncConfig,
+      };
     }
     fail(`unknown argument: ${a}`);
   }
@@ -391,30 +455,121 @@ function parseArgs(argv) {
   if ((baseRef && !headRef) || (!baseRef && headRef)) {
     fail("install requires both --base-ref and --head-ref together");
   }
+  if (runId && !releaseTag) {
+    fail("release with --run-id requires --tag so artifact names stay explicit");
+  }
+  if (rerunRun && !runId) {
+    fail("--rerun-run requires --run-id");
+  }
 
-  return { cmd, logPath, repo, workflow, releaseTag, installTgz, baseRef, headRef };
+  return {
+    cmd,
+    logPath,
+    repo,
+    workflow,
+    releaseTag,
+    runId,
+    rerunRun,
+    installTgz,
+    baseRef,
+    headRef,
+    pluginSyncConfig,
+  };
 }
 
 function usage() {
   console.log(`polytropos-release.mjs
 
 Usage:
-  node scripts/polytropos-release.mjs release [--tag v<ver>-poly.<N>] [--repo <owner/repo>] [--workflow <workflow.yml>] [--log <path>]
-  node scripts/polytropos-release.mjs install <tgz> [--base-ref <ref> --head-ref <ref>] [--log <path>]
+  node scripts/polytropos-release.mjs release [--tag v<ver>-poly.<N>] [--run-id <id> [--rerun-run]] [--repo <owner/repo>] [--workflow <workflow.yml>] [--log <path>]
+  node scripts/polytropos-release.mjs install <tgz> [--base-ref <ref> --head-ref <ref>] [--plugin-sync-config auto|normal|sanitized-temp] [--log <path>]
 
 Behavior (single flow):
-  - Pushes the release tag to GitHub
+  - Pushes the release tag to GitHub, unless --run-id reuses an existing tag run
   - Waits for the GitHub Actions workflow run for that tag to complete
   - Downloads the artifact openclaw-tgz-<tag>
   - Stages it into ~/polytropos/releases/<tag>.tgz
   - Updates previous.tgz then current.tgz (symlink-safe)
   - Calls install <tgz> to perform the final package install steps
   - install <tgz> performs the global install, bundled deps helper, and managed plugin sync
+  - plugin sync normally uses the live config; --plugin-sync-config sanitized-temp bypasses
+    config validation with a temporary copy of the live config minus session.reset, and auto
+    retries that way after failure
   - Does not activate/restart the gateway
 `);
 }
 
-async function runInstall({ logStream, tgzPath, baseRef, headRef }) {
+export function createSanitizedTemporaryConfigPath(env = process.env) {
+  const liveConfigPath = resolveLiveConfigPath(env);
+  if (!fs.existsSync(liveConfigPath)) {
+    throw new Error(`live OpenClaw config not found for sanitized fallback: ${liveConfigPath}`);
+  }
+  const raw = fs.readFileSync(liveConfigPath, "utf8");
+  const parsed = JSON5.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`live OpenClaw config must be an object: ${liveConfigPath}`);
+  }
+  const sanitized = structuredClone(parsed);
+  if (
+    sanitized.session &&
+    typeof sanitized.session === "object" &&
+    !Array.isArray(sanitized.session)
+  ) {
+    delete sanitized.session.reset;
+  }
+  const configDir = path.dirname(liveConfigPath);
+  const configPath = path.join(
+    configDir,
+    `openclaw.polytropos-release-sanitized-${timestampForFilename()}-${process.pid}-${randomUUID()}.json`,
+  );
+  fs.writeFileSync(configPath, `${JSON.stringify(sanitized, null, 2)}\n`, { mode: 0o600 });
+  return configPath;
+}
+
+async function runPostInstallPluginSync({ logStream, pluginSyncCommand, pluginSyncConfig }) {
+  const runSync = async (label, env = process.env) => {
+    await shRetry(logStream, label, async () => {
+      await shTee(logStream, pluginSyncCommand.cmd, pluginSyncCommand.args, {
+        cwd: pluginSyncCommand.cwd,
+        env,
+      });
+    });
+  };
+
+  const runWithSanitizedConfig = async (bannerMessage) => {
+    const configPath = createSanitizedTemporaryConfigPath();
+    banner(logStream, `${bannerMessage}: ${configPath}`);
+    try {
+      await runSync("release plugin sync (sanitized config)", {
+        ...process.env,
+        OPENCLAW_CONFIG_PATH: configPath,
+      });
+    } finally {
+      fs.rmSync(configPath, { force: true });
+    }
+  };
+
+  if (pluginSyncConfig === "sanitized-temp") {
+    await runWithSanitizedConfig(
+      "Using sanitized temporary config with session.reset removed for release plugin sync",
+    );
+    return;
+  }
+
+  try {
+    await runSync("release plugin sync");
+  } catch (error) {
+    if (pluginSyncConfig !== "auto") {
+      throw error;
+    }
+    teeWriteStream(logStream, `${String(error?.message ?? error)}\n`);
+    await runWithSanitizedConfig(
+      "Release plugin sync failed with live config; retrying with sanitized temporary config that removes session.reset",
+    );
+  }
+}
+
+async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConfig }) {
   const resolvedTgzPath = path.resolve(tgzPath);
   if (!fs.existsSync(resolvedTgzPath)) {
     fail(`install tgz does not exist: ${resolvedTgzPath}`);
@@ -465,10 +620,10 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef }) {
       baseRef,
       headRef,
     });
-    await shRetry(logStream, "release plugin sync", async () => {
-      await shTee(logStream, pluginSyncCommand.cmd, pluginSyncCommand.args, {
-        cwd: pluginSyncCommand.cwd,
-      });
+    await runPostInstallPluginSync({
+      logStream,
+      pluginSyncCommand,
+      pluginSyncConfig,
     });
     banner(logStream, "Release plugin sync completed.");
   }
@@ -477,201 +632,228 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef }) {
   banner(logStream, `Install completed for version ${info.version} (not activated).`);
 }
 
-const {
-  cmd,
-  logPath,
-  repo,
-  workflow,
-  releaseTag: requestedTag,
-  installTgz,
-  baseRef,
-  headRef,
-} = parseArgs(process.argv);
-if (!cmd || cmd === "--help") {
-  usage();
-  process.exit(0);
-}
+async function main(argv = process.argv) {
+  const {
+    cmd,
+    logPath,
+    repo,
+    workflow,
+    releaseTag: requestedTag,
+    runId: requestedRunId,
+    rerunRun,
+    installTgz,
+    baseRef,
+    headRef,
+    pluginSyncConfig,
+  } = parseArgs(argv);
+  if (!cmd || cmd === "--help") {
+    usage();
+    process.exit(0);
+  }
 
-if (cmd !== "release" && cmd !== "install") {
-  fail(`unknown command: ${cmd}`);
-}
+  if (cmd !== "release" && cmd !== "install") {
+    fail(`unknown command: ${cmd}`);
+  }
 
-fs.mkdirSync(path.dirname(logPath), { recursive: true });
-const logStream = fs.createWriteStream(logPath, { flags: "a" });
-banner(logStream, `Log file: ${logPath}`);
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  const logStream = fs.createWriteStream(logPath, { flags: "a" });
+  banner(logStream, `Log file: ${logPath}`);
 
-try {
-  if (cmd === "install") {
-    await runInstall({ logStream, tgzPath: installTgz, baseRef, headRef });
-  } else {
-    const releaseTag = requestedTag ?? computeNextReleaseTag();
-    if (!/^v.+-poly\.\d+$/.test(releaseTag)) {
-      fail(`invalid --tag: ${releaseTag} (expected v<ver>-poly.<N>)`);
-    }
-
-    const ghRepo = repo || inferGhRepoFromOrigin();
-    const wf = workflow || "polytropos-build-pack.yml";
-
-    banner(logStream, `GitHub repo: ${ghRepo}`);
-    banner(logStream, `Workflow: ${wf}`);
-    banner(logStream, `Release tag: ${releaseTag}`);
-    const previousReleaseTag = findPreviousReleaseTag(releaseTag);
-    if (previousReleaseTag) {
-      banner(logStream, `Previous release tag: ${previousReleaseTag}`);
+  try {
+    if (cmd === "install") {
+      await runInstall({ logStream, tgzPath: installTgz, baseRef, headRef, pluginSyncConfig });
     } else {
-      banner(logStream, "Previous release tag: none");
-    }
+      const releaseTag = requestedTag ?? computeNextReleaseTag();
+      if (!/^v.+-poly\.\d+$/.test(releaseTag)) {
+        fail(`invalid --tag: ${releaseTag} (expected v<ver>-poly.<N>)`);
+      }
 
-    const releaseBranch = assertValidReleaseBranch();
-    banner(logStream, `Release branch: ${releaseBranch}`);
+      const ghRepo = repo || inferGhRepoFromOrigin();
+      const wf = workflow || "polytropos-build-pack.yml";
 
-    const relRoot = releasesRoot();
-    fs.mkdirSync(relRoot, { recursive: true });
-    fs.mkdirSync(pluginReleasesRoot(relRoot), { recursive: true });
-    assertReleaseStoreConsistent(relRoot);
+      banner(logStream, `GitHub repo: ${ghRepo}`);
+      banner(logStream, `Workflow: ${wf}`);
+      banner(logStream, `Release tag: ${releaseTag}`);
+      const previousReleaseTag = findPreviousReleaseTag(releaseTag);
+      if (previousReleaseTag) {
+        banner(logStream, `Previous release tag: ${previousReleaseTag}`);
+      } else {
+        banner(logStream, "Previous release tag: none");
+      }
 
-    try {
-      sh("git", ["rev-parse", "--verify", `refs/tags/${releaseTag}`]);
-    } catch {
-      banner(logStream, `Creating tag locally: ${releaseTag}`);
-      await shTee(logStream, "git", [
-        "tag",
-        "-a",
-        releaseTag,
-        "-m",
-        `Polytropos release ${releaseTag}`,
+      if (requestedRunId) {
+        banner(
+          logStream,
+          `Reusing existing workflow run ${requestedRunId} for ${releaseTag}; tag creation and push skipped`,
+        );
+      } else {
+        const releaseBranch = assertValidReleaseBranch();
+        banner(logStream, `Release branch: ${releaseBranch}`);
+      }
+
+      const relRoot = releasesRoot();
+      fs.mkdirSync(relRoot, { recursive: true });
+      fs.mkdirSync(pluginReleasesRoot(relRoot), { recursive: true });
+      assertReleaseStoreConsistent(relRoot);
+
+      let runId = requestedRunId;
+      if (!runId) {
+        try {
+          sh("git", ["rev-parse", "--verify", `refs/tags/${releaseTag}`]);
+        } catch {
+          banner(logStream, `Creating tag locally: ${releaseTag}`);
+          await shTee(logStream, "git", [
+            "tag",
+            "-a",
+            releaseTag,
+            "-m",
+            `Polytropos release ${releaseTag}`,
+          ]);
+        }
+
+        banner(logStream, `Pushing tag: ${releaseTag}`);
+        await shTee(logStream, "git", ["push", "origin", releaseTag]);
+
+        banner(logStream, "Locating workflow run...");
+        runId = await findRunIdForTag({ logStream, ghRepo, wf, releaseTag });
+      }
+
+      if (rerunRun) {
+        banner(logStream, `Rerunning existing workflow run: ${runId}`);
+        await shTee(logStream, "gh", ["run", "rerun", runId, "--repo", ghRepo]);
+      }
+
+      banner(logStream, `Watching run: ${runId}`);
+      await shTee(logStream, "gh", ["run", "watch", runId, "--repo", ghRepo, "--exit-status"]);
+
+      const artifact = `openclaw-tgz-${releaseTag}`;
+      const inventoryArtifact = `polytropos-package-inventory-${releaseTag}`;
+      const tmpDir = fs.mkdtempSync(path.join(resolveHome(), ".openclaw", "tmp-release-"));
+
+      banner(logStream, `Downloading artifact ${artifact} to ${tmpDir}`);
+      await shTee(logStream, "gh", [
+        "run",
+        "download",
+        runId,
+        "--repo",
+        ghRepo,
+        "-n",
+        artifact,
+        "--dir",
+        tmpDir,
       ]);
-    }
 
-    banner(logStream, `Pushing tag: ${releaseTag}`);
-    await shTee(logStream, "git", ["push", "origin", releaseTag]);
+      banner(logStream, `Downloading artifact ${inventoryArtifact} to ${tmpDir}`);
+      await shTee(logStream, "gh", [
+        "run",
+        "download",
+        runId,
+        "--repo",
+        ghRepo,
+        "-n",
+        inventoryArtifact,
+        "--dir",
+        tmpDir,
+      ]);
 
-    banner(logStream, "Locating workflow run...");
-    const runId = await findRunIdForTag({ logStream, ghRepo, wf, releaseTag });
-
-    banner(logStream, `Watching run: ${runId}`);
-    await shTee(logStream, "gh", ["run", "watch", runId, "--repo", ghRepo, "--exit-status"]);
-
-    const artifact = `openclaw-tgz-${releaseTag}`;
-    const inventoryArtifact = `polytropos-package-inventory-${releaseTag}`;
-    const tmpDir = fs.mkdtempSync(path.join(resolveHome(), ".openclaw", "tmp-release-"));
-
-    banner(logStream, `Downloading artifact ${artifact} to ${tmpDir}`);
-    await shTee(logStream, "gh", [
-      "run",
-      "download",
-      runId,
-      "--repo",
-      ghRepo,
-      "-n",
-      artifact,
-      "--dir",
-      tmpDir,
-    ]);
-
-    banner(logStream, `Downloading artifact ${inventoryArtifact} to ${tmpDir}`);
-    await shTee(logStream, "gh", [
-      "run",
-      "download",
-      runId,
-      "--repo",
-      ghRepo,
-      "-n",
-      inventoryArtifact,
-      "--dir",
-      tmpDir,
-    ]);
-
-    function findTgz(dir) {
-      const matches = [];
-      const stack = [dir];
-      while (stack.length) {
-        const d = stack.pop();
-        for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
-          const pth = path.join(d, ent.name);
-          if (ent.isDirectory()) {
-            stack.push(pth);
-          } else if (ent.isFile() && ent.name.endsWith(".tgz")) {
-            matches.push(pth);
+      function findTgz(dir) {
+        const matches = [];
+        const stack = [dir];
+        while (stack.length) {
+          const d = stack.pop();
+          for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
+            const pth = path.join(d, ent.name);
+            if (ent.isDirectory()) stack.push(pth);
+            else if (ent.isFile() && ent.name.endsWith(".tgz")) matches.push(pth);
           }
         }
+        return matches;
       }
-      return matches;
-    }
 
-    const tgzs = findTgz(tmpDir);
-    if (tgzs.length !== 1) {
-      fail(`expected exactly one .tgz in artifact, found ${tgzs.length}: ${tgzs.join(", ")}`);
-    }
-    const tgzPath = tgzs[0];
-    const expectedVersion = releaseTag.replace(/^v/, "").replace(/-poly\.\d+$/, "");
+      const tgzs = findTgz(tmpDir);
+      if (tgzs.length !== 1) {
+        fail(`expected exactly one .tgz in artifact, found ${tgzs.length}: ${tgzs.join(", ")}`);
+      }
+      const tgzPath = tgzs[0];
+      const expectedVersion = releaseTag.replace(/^v/, "").replace(/-poly\.\d+$/, "");
 
-    {
-      const info = tgzInternalVersion(tgzPath);
-      if (info.name !== "openclaw") {
-        fail(`unexpected package name in tgz: ${info.name}`);
+      {
+        const info = tgzInternalVersion(tgzPath);
+        if (info.name !== "openclaw") {
+          fail(`unexpected package name in tgz: ${info.name}`);
+        }
+        if (info.version !== expectedVersion) {
+          fail(`tgz version ${info.version} != expected ${expectedVersion} (from ${releaseTag})`);
+        }
       }
-      if (info.version !== expectedVersion) {
-        fail(`tgz version ${info.version} != expected ${expectedVersion} (from ${releaseTag})`);
-      }
-    }
 
-    const tarPath = path.join(relRoot, `${releaseTag}.tgz`);
-    const inventoryPath = inventoryPathForTag(relRoot, releaseTag);
-    if (fs.existsSync(tarPath)) {
-      banner(logStream, `Tarball already staged: ${tarPath}`);
-      const info = tgzInternalVersion(tarPath);
-      if (info.name !== "openclaw") {
-        fail(`unexpected package name in existing tgz: ${info.name}`);
+      const tarPath = path.join(relRoot, `${releaseTag}.tgz`);
+      const inventoryPath = inventoryPathForTag(relRoot, releaseTag);
+      if (fs.existsSync(tarPath)) {
+        banner(logStream, `Tarball already staged: ${tarPath}`);
+        const info = tgzInternalVersion(tarPath);
+        if (info.name !== "openclaw") {
+          fail(`unexpected package name in existing tgz: ${info.name}`);
+        }
+        if (info.version !== expectedVersion) {
+          fail(
+            `existing tgz version ${info.version} != expected ${expectedVersion} (from ${releaseTag})`,
+          );
+        }
+      } else {
+        fs.copyFileSync(tgzPath, tarPath);
       }
-      if (info.version !== expectedVersion) {
-        fail(
-          `existing tgz version ${info.version} != expected ${expectedVersion} (from ${releaseTag})`,
+
+      const foundInventory = path.join(tmpDir, "polytropos-package-inventory.json");
+      if (!fs.existsSync(foundInventory)) {
+        fail(`expected downloaded inventory artifact at ${foundInventory}`);
+      }
+      fs.copyFileSync(foundInventory, inventoryPath);
+
+      banner(logStream, `Staged tarball: ${tarPath}`);
+      banner(logStream, `Staged package inventory: ${inventoryPath}`);
+      const currentTgz = path.join(relRoot, "current.tgz");
+      assertSymlink(currentTgz, "current.tgz");
+      const previousTgz = path.join(relRoot, "previous.tgz");
+      assertSymlink(previousTgz, "previous.tgz");
+      const currentTarget = readlinkAbs(currentTgz);
+      if (currentTarget) {
+        banner(logStream, `Setting previous.tgz -> ${currentTarget}`);
+        lnSfn(currentTarget, previousTgz);
+      } else {
+        banner(
+          logStream,
+          "No existing current.tgz symlink; setting previous.tgz to this tarball as bootstrap",
         );
+        lnSfn(tarPath, previousTgz);
       }
-    } else {
-      fs.copyFileSync(tgzPath, tarPath);
-    }
 
-    const foundInventory = path.join(tmpDir, "polytropos-package-inventory.json");
-    if (!fs.existsSync(foundInventory)) {
-      fail(`expected downloaded inventory artifact at ${foundInventory}`);
-    }
-    fs.copyFileSync(foundInventory, inventoryPath);
-
-    banner(logStream, `Staged tarball: ${tarPath}`);
-    banner(logStream, `Staged package inventory: ${inventoryPath}`);
-    const currentTgz = path.join(relRoot, "current.tgz");
-    assertSymlink(currentTgz, "current.tgz");
-    const previousTgz = path.join(relRoot, "previous.tgz");
-    assertSymlink(previousTgz, "previous.tgz");
-    const currentTarget = readlinkAbs(currentTgz);
-    if (currentTarget) {
-      banner(logStream, `Setting previous.tgz -> ${currentTarget}`);
-      lnSfn(currentTarget, previousTgz);
-    } else {
+      banner(logStream, `Setting current.tgz -> ${tarPath}`);
+      lnSfn(tarPath, currentTgz);
+      banner(logStream, `Delegating install for staged release artifact ${currentTgz}`);
+      const installCommand = buildInstallCommand({
+        repoRoot: REPO_ROOT,
+        tgzPath: currentTgz,
+        baseRef: previousReleaseTag ?? undefined,
+        headRef: releaseTag,
+        logPath,
+        pluginSyncConfig,
+      });
       banner(
         logStream,
-        "No existing current.tgz symlink; setting previous.tgz to this tarball as bootstrap",
+        `Install command: ${commandString(installCommand.cmd, installCommand.args)}`,
       );
-      lnSfn(tarPath, previousTgz);
+      await shTee(logStream, installCommand.cmd, installCommand.args);
+      banner(logStream, "Release staged and install delegated (not activated).");
     }
-
-    banner(logStream, `Setting current.tgz -> ${tarPath}`);
-    lnSfn(tarPath, currentTgz);
-    banner(logStream, `Delegating install for staged release artifact ${currentTgz}`);
-    const installCommand = buildInstallCommand({
-      repoRoot: REPO_ROOT,
-      tgzPath: currentTgz,
-      baseRef: previousReleaseTag ?? undefined,
-      headRef: releaseTag,
-      logPath,
-    });
-    await shTee(logStream, installCommand.cmd, installCommand.args);
-    banner(logStream, "Release staged and install delegated (not activated).");
+  } finally {
+    logStream.end();
   }
-} finally {
-  logStream.end();
+}
+
+const entryUrl = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
+if (import.meta.url === entryUrl) {
+  await main();
 }
 function currentBranchName() {
   return sh("git", ["branch", "--show-current"]);
