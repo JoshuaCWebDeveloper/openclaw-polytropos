@@ -333,6 +333,7 @@ async function installPluginTargetsFromInventory(params: {
         archivePath: stagedArtifactPath,
         mode: "update",
         expectedPluginId: target.pluginId,
+        trustedSourceLinkedOfficialInstall: true,
         ...(extensionsDir ? { extensionsDir } : {}),
       });
       if (!result.ok) {
