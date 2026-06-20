@@ -21,9 +21,9 @@ Make Polytropos core and every tracked Polytropos plugin follow one release auto
 
 - Repo: `openclaw-polytropos`
 - Current packaging workflow: `.github/workflows/polytropos-build-pack.yml`
-- Current output: a release-tagged package inventory artifact plus the package artifacts it references
+- Current output: a release-tagged core tarball artifact plus a package inventory artifact with GitHub Packages locators for tracked packages
 - Current downstream install path: `scripts/polytropos-release.mjs`
-- Current release script contract: find workflow run, download release inventory, stage in `~/polytropos/releases/`, install from that inventory
+- Current release script contract: find or reuse a tag workflow run, download `openclaw-tgz-<tag>` and `polytropos-package-inventory-<tag>`, stage both in `~/polytropos/releases/`, install the staged tarball, and run plugin sync
 
 ### Plugins
 
@@ -142,19 +142,18 @@ That inventory file becomes the local release artifact.
 
 Downstream should consume the inventory, not rediscover packages ad hoc.
 
-Desired flow:
+Current first-pass flow:
 
-1. Download the release inventory
-2. Stage it locally as the authoritative release artifact for that release tag
-3. Resolve the core package locator from the inventory
-4. Install core via the normal package-install path
-5. Resolve plugin package locators from the inventory
-6. Install/update plugins via the chosen standard plugin-install path
+1. Download the core tarball and release inventory from the same tag workflow run
+2. Stage the tarball as the install artifact for that release tag
+3. Stage the inventory beside it for tracked package/plugin provenance
+4. Install core from the staged tarball
+5. Run plugin sync across the previous release tag and current release tag
 
 Implementation consequence:
 
-- `scripts/polytropos-release.mjs` will need to treat the release inventory as the local release artifact instead of assuming a single core artifact download path
-- a local staging/cache directory like `~/polytropos/releases/plugins` is a reasonable default for downloaded plugin artifacts before install
+- the inventory is not yet the core install artifact; stale reruns must download both tag-named artifacts from the selected workflow run
+- a local staging/cache directory like `~/polytropos/releases/plugins` remains a reasonable future default for downloaded plugin artifacts before install
 
 Implementation rule:
 

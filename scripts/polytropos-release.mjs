@@ -3,13 +3,15 @@
  * Polytropos core release script (single purpose)
  *
  * ONE job:
- *   Download a CI-built release artifact from GitHub Actions and stage it into the
- *   authoritative local release store under ~/polytropos/releases/, then install it globally.
+ *   Create or reuse a release-tag workflow run, download its CI-built core tarball
+ *   and package inventory, stage them under ~/polytropos/releases/, then install
+ *   the staged tarball globally.
  *
  * Notes:
  * - No local builds.
- * - No git tagging.
- * - Artifact naming is the source of truth for the release tag (v<ver>-poly.<N>).
+ * - Tags are created and pushed by default; --run-id reuses an existing run and
+ *   therefore requires an explicit --tag.
+ * - Artifact names must match the release tag (v<ver>-poly.<N>).
  */
 
 import { execFileSync, spawn } from "node:child_process";
@@ -105,6 +107,14 @@ function releasesRoot() {
 
 function inventoryPathForTag(relRoot, releaseTag) {
   return path.join(relRoot, `${releaseTag}.package-inventory.json`);
+}
+
+function tgzArtifactNameForTag(releaseTag) {
+  return `openclaw-tgz-${releaseTag}`;
+}
+
+function inventoryArtifactNameForTag(releaseTag) {
+  return `polytropos-package-inventory-${releaseTag}`;
 }
 
 function pluginReleasesRoot(relRoot) {
@@ -264,6 +274,77 @@ async function findRunIdForTag({ logStream, ghRepo, wf, releaseTag, timeoutMs = 
   }
   fail(`could not find workflow run for tag ${releaseTag} within ${timeoutMs}ms`);
   throw new Error(`could not find workflow run for tag ${releaseTag} within ${timeoutMs}ms`);
+}
+
+function addReleaseArtifactCandidate(candidates, name, prefix, field) {
+  if (!name.startsWith(prefix)) {
+    return;
+  }
+  const releaseTag = name.slice(prefix.length);
+  if (!/^v.+-poly\.\d+$/.test(releaseTag)) {
+    return;
+  }
+  const candidate = candidates.get(releaseTag) ?? {};
+  candidate[field] = name;
+  candidates.set(releaseTag, candidate);
+}
+
+export function resolvePolytroposReleaseArtifacts({ requestedTag, artifacts }) {
+  const available = artifacts
+    .filter((artifact) => artifact?.expired !== true && typeof artifact?.name === "string")
+    .map((artifact) => artifact.name);
+
+  const candidates = new Map();
+  for (const name of available) {
+    addReleaseArtifactCandidate(candidates, name, "openclaw-tgz-", "tgzArtifact");
+    addReleaseArtifactCandidate(
+      candidates,
+      name,
+      "polytropos-package-inventory-",
+      "inventoryArtifact",
+    );
+  }
+
+  const requested = candidates.get(requestedTag);
+  if (requested?.tgzArtifact && requested?.inventoryArtifact) {
+    return {
+      releaseTag: requestedTag,
+      tgzArtifact: requested.tgzArtifact,
+      inventoryArtifact: requested.inventoryArtifact,
+    };
+  }
+
+  const complete = [...candidates.entries()].filter(
+    ([, candidate]) => candidate.tgzArtifact && candidate.inventoryArtifact,
+  );
+  if (complete.length === 1) {
+    const [releaseTag, candidate] = complete[0];
+    return {
+      releaseTag,
+      tgzArtifact: candidate.tgzArtifact,
+      inventoryArtifact: candidate.inventoryArtifact,
+    };
+  }
+
+  const availableList =
+    available.length > 0 ? available.map((name) => `- ${name}`).join("\n") : "- <none>";
+  throw new Error(
+    `could not resolve release artifacts for ${requestedTag}. Expected ${tgzArtifactNameForTag(
+      requestedTag,
+    )} and ${inventoryArtifactNameForTag(
+      requestedTag,
+    )}, or exactly one complete openclaw-tgz-/polytropos-package-inventory- tag pair.\nAvailable artifacts:\n${availableList}`,
+  );
+}
+
+function listRunArtifacts({ ghRepo, runId }) {
+  const raw = sh("gh", ["api", `repos/${ghRepo}/actions/runs/${runId}/artifacts?per_page=100`]);
+  const parsed = JSON.parse(raw);
+  const artifacts = Array.isArray(parsed?.artifacts) ? parsed.artifacts : [];
+  return artifacts.map((artifact) => ({
+    name: artifact?.name,
+    expired: artifact?.expired,
+  }));
 }
 
 function banner(logStream, s) {
@@ -489,8 +570,8 @@ Usage:
 Behavior (single flow):
   - Pushes the release tag to GitHub, unless --run-id reuses an existing tag run
   - Waits for the GitHub Actions workflow run for that tag to complete
-  - Downloads the artifact openclaw-tgz-<tag>
-  - Stages it into ~/polytropos/releases/<tag>.tgz
+  - Downloads artifacts openclaw-tgz-<tag> and polytropos-package-inventory-<tag>
+  - Stages them into ~/polytropos/releases/<tag>.tgz and <tag>.package-inventory.json
   - Updates previous.tgz then current.tgz (symlink-safe)
   - Calls install <tgz> to perform the final package install steps
   - install <tgz> performs the global install, bundled deps helper, and managed plugin sync
@@ -526,6 +607,35 @@ export function createSanitizedTemporaryConfigPath(env = process.env) {
   );
   fs.writeFileSync(configPath, `${JSON.stringify(sanitized, null, 2)}\n`, { mode: 0o600 });
   return configPath;
+}
+
+export function stageDownloadedReleaseTarball({
+  logStream,
+  downloadedTgzPath,
+  relRoot,
+  releaseTag,
+  expectedVersion,
+}) {
+  const tarPath = path.join(relRoot, `${releaseTag}.tgz`);
+  if (fs.existsSync(tarPath)) {
+    banner(
+      logStream,
+      `Replacing existing staged tarball for rerun: ${tarPath} <- ${downloadedTgzPath}`,
+    );
+  }
+  const tempPath = `${tarPath}.tmp-${process.pid}-${randomUUID()}`;
+  fs.copyFileSync(downloadedTgzPath, tempPath);
+  const info = tgzInternalVersion(tempPath);
+  if (info.name !== "openclaw") {
+    fs.rmSync(tempPath, { force: true });
+    fail(`unexpected package name in staged tgz: ${info.name}`);
+  }
+  if (info.version !== expectedVersion) {
+    fs.rmSync(tempPath, { force: true });
+    fail(`staged tgz version ${info.version} != expected ${expectedVersion} (from ${releaseTag})`);
+  }
+  fs.renameSync(tempPath, tarPath);
+  return tarPath;
 }
 
 async function runPostInstallPluginSync({ logStream, pluginSyncCommand, pluginSyncConfig }) {
@@ -665,7 +775,7 @@ async function main(argv = process.argv) {
     if (cmd === "install") {
       await runInstall({ logStream, tgzPath: installTgz, baseRef, headRef, pluginSyncConfig });
     } else {
-      const releaseTag = requestedTag ?? computeNextReleaseTag();
+      let releaseTag = requestedTag ?? computeNextReleaseTag();
       if (!/^v.+-poly\.\d+$/.test(releaseTag)) {
         fail(`invalid --tag: ${releaseTag} (expected v<ver>-poly.<N>)`);
       }
@@ -676,7 +786,7 @@ async function main(argv = process.argv) {
       banner(logStream, `GitHub repo: ${ghRepo}`);
       banner(logStream, `Workflow: ${wf}`);
       banner(logStream, `Release tag: ${releaseTag}`);
-      const previousReleaseTag = findPreviousReleaseTag(releaseTag);
+      let previousReleaseTag = findPreviousReleaseTag(releaseTag);
       if (previousReleaseTag) {
         banner(logStream, `Previous release tag: ${previousReleaseTag}`);
       } else {
@@ -728,8 +838,31 @@ async function main(argv = process.argv) {
       banner(logStream, `Watching run: ${runId}`);
       await shTee(logStream, "gh", ["run", "watch", runId, "--repo", ghRepo, "--exit-status"]);
 
-      const artifact = `openclaw-tgz-${releaseTag}`;
-      const inventoryArtifact = `polytropos-package-inventory-${releaseTag}`;
+      let resolvedArtifacts;
+      try {
+        resolvedArtifacts = resolvePolytroposReleaseArtifacts({
+          requestedTag: releaseTag,
+          artifacts: listRunArtifacts({ ghRepo, runId }),
+        });
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+      if (resolvedArtifacts.releaseTag !== releaseTag) {
+        banner(
+          logStream,
+          `Resolved release tag from run artifacts: ${releaseTag} -> ${resolvedArtifacts.releaseTag}`,
+        );
+        releaseTag = resolvedArtifacts.releaseTag;
+        previousReleaseTag = findPreviousReleaseTag(releaseTag);
+        if (previousReleaseTag) {
+          banner(logStream, `Previous release tag: ${previousReleaseTag}`);
+        } else {
+          banner(logStream, "Previous release tag: none");
+        }
+      }
+
+      const artifact = resolvedArtifacts.tgzArtifact;
+      const inventoryArtifact = resolvedArtifacts.inventoryArtifact;
       const tmpDir = fs.mkdtempSync(path.join(resolveHome(), ".openclaw", "tmp-release-"));
 
       banner(logStream, `Downloading artifact ${artifact} to ${tmpDir}`);
@@ -792,22 +925,14 @@ async function main(argv = process.argv) {
         }
       }
 
-      const tarPath = path.join(relRoot, `${releaseTag}.tgz`);
       const inventoryPath = inventoryPathForTag(relRoot, releaseTag);
-      if (fs.existsSync(tarPath)) {
-        banner(logStream, `Tarball already staged: ${tarPath}`);
-        const info = tgzInternalVersion(tarPath);
-        if (info.name !== "openclaw") {
-          fail(`unexpected package name in existing tgz: ${info.name}`);
-        }
-        if (info.version !== expectedVersion) {
-          fail(
-            `existing tgz version ${info.version} != expected ${expectedVersion} (from ${releaseTag})`,
-          );
-        }
-      } else {
-        fs.copyFileSync(tgzPath, tarPath);
-      }
+      const tarPath = stageDownloadedReleaseTarball({
+        logStream,
+        downloadedTgzPath: tgzPath,
+        relRoot,
+        releaseTag,
+        expectedVersion,
+      });
 
       const foundInventory = path.join(tmpDir, "polytropos-package-inventory.json");
       if (!fs.existsSync(foundInventory)) {
