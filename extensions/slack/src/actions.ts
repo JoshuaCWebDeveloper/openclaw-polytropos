@@ -272,11 +272,11 @@ export async function editSlackMessage(
   messageId: string,
   content: string,
   opts: Omit<SlackActionClientOpts, "client"> & {
-    client?: Pick<SlackApiClient, "chat">;
+    client?: SlackApiClient;
     blocks?: (Block | KnownBlock)[];
   } = {},
 ) {
-  const client = opts.client ?? ((await getClient(opts, "write")) as Pick<SlackApiClient, "chat">);
+  const client = opts.client ?? (await getClient(opts, "write"));
   const blocks = opts.blocks == null ? undefined : validateSlackBlocksArray(opts.blocks);
   await client.chat.update({
     channel: channelId,
