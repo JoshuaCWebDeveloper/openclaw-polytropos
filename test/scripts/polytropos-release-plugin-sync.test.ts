@@ -85,6 +85,7 @@ describe("polytropos release helpers", () => {
     expect(targets).toContainEqual({
       pluginId: "codex",
       packageName: "@openclaw/codex",
+      registryPackageName: "@openclaw/codex",
       installedVersion: "2026.5.1",
       releaseVersion,
       specOverride: `@openclaw/codex@${releaseVersion}`,
@@ -92,10 +93,53 @@ describe("polytropos release helpers", () => {
     expect(targets).toContainEqual({
       pluginId: "discord",
       packageName: "@openclaw/discord",
+      registryPackageName: "@openclaw/discord",
       installedVersion: "2026.6.1",
       releaseVersion,
       specOverride: `@openclaw/discord@${releaseVersion}`,
     });
     expect(targets.some((entry) => entry.pluginId === "custom")).toBe(false);
+  });
+
+  it("uses published package names from inventory for registry fetches", () => {
+    const targets = resolveReleaseManagedNpmPluginTargets({
+      repoRoot: process.cwd(),
+      installRecords: {
+        codex: {
+          source: "npm",
+          spec: "npm:@openclaw/codex",
+          resolvedName: "@openclaw/codex",
+          resolvedVersion: "2026.6.1",
+        },
+      },
+      inventory: {
+        packages: [
+          {
+            packageName: "@openclaw/codex",
+            packageType: "plugin",
+            latestVersion: "2026.6.1-poly.69",
+            changed: true,
+            artifactUrl:
+              "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-codex/2026.6.1-poly.69/archive",
+            integrity: "sha512-test",
+            publishedPackageName: "@joshuacwebdeveloper/openclaw-polytropos-codex",
+          },
+        ],
+      },
+    });
+
+    expect(targets).toEqual([
+      {
+        pluginId: "codex",
+        packageName: "@openclaw/codex",
+        registryPackageName: "@joshuacwebdeveloper/openclaw-polytropos-codex",
+        installedVersion: "2026.6.1",
+        releaseVersion: "2026.6.1-poly.69",
+        specOverride: "@openclaw/codex@2026.6.1-poly.69",
+        artifactUrl:
+          "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-codex/2026.6.1-poly.69/archive",
+        integrity: "sha512-test",
+      },
+    ]);
   });
 });

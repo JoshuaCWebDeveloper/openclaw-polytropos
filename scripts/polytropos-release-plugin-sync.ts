@@ -33,6 +33,7 @@ type PackageInventoryEntry = {
   changed: boolean;
   artifactUrl: string | null;
   integrity: string | null;
+  publishedPackageName?: string;
 };
 
 type PackageInventory = {
@@ -42,6 +43,7 @@ type PackageInventory = {
 export type ReleasePluginSyncTarget = {
   pluginId: string;
   packageName: string;
+  registryPackageName: string;
   installedVersion: string;
   releaseVersion: string;
   specOverride: string;
@@ -203,6 +205,7 @@ export function resolveReleaseManagedNpmPluginTargets(params: {
       targets.push({
         pluginId,
         packageName,
+        registryPackageName: entry.publishedPackageName?.trim() || packageName,
         installedVersion,
         releaseVersion: entry.latestVersion,
         specOverride: `${packageName}@${entry.latestVersion}`,
@@ -247,6 +250,7 @@ export function resolveReleaseManagedNpmPluginTargets(params: {
     targets.push({
       pluginId,
       packageName,
+      registryPackageName: packageName,
       installedVersion,
       releaseVersion: publishable.version,
       specOverride: `${packageName}@${publishable.version}`,
@@ -305,13 +309,13 @@ async function installPluginTargetsFromInventory(params: {
     try {
       try {
         await stageRegistryPackageArchive({
-          packageName: target.packageName,
+          packageName: target.registryPackageName,
           version: target.releaseVersion,
           targetPath: stagedArtifactPath,
         });
       } catch (npmPackError) {
         params.logger.warn(
-          `npm pack failed for ${target.packageName}@${target.releaseVersion}; falling back to artifact URL download: ${String(
+          `npm pack failed for ${target.registryPackageName}@${target.releaseVersion}; falling back to artifact URL download: ${String(
             npmPackError,
           )}`,
         );
