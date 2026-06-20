@@ -5,26 +5,7 @@ import { resolveSlackWebClientOptions, resolveSlackWriteClientOptions } from "./
 const SLACK_WRITE_CLIENT_CACHE_MAX = 32;
 const slackWriteClientCache = new Map<string, WebClient>();
 
-export type SlackApiClient = {
-  chat: {
-    postMessage: (...args: any[]) => Promise<any>;
-    update: (...args: any[]) => Promise<any>;
-  };
-  conversations: {
-    history: (...args: any[]) => Promise<any>;
-    open: (...args: any[]) => Promise<any>;
-    replies: (...args: any[]) => Promise<any>;
-  };
-  files: {
-    completeUploadExternal: (...args: any[]) => Promise<any>;
-    getUploadURLExternal: (...args: any[]) => Promise<any>;
-  };
-  usergroups: {
-    users: {
-      list: (...args: any[]) => Promise<any>;
-    };
-  };
-};
+export type SlackApiClient = Pick<WebClient, "chat" | "conversations" | "files" | "usergroups">;
 
 export {
   resolveSlackWebClientOptions,
