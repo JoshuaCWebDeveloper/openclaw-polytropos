@@ -1,4 +1,4 @@
-import type { Block, KnownBlock, WebClient } from "@slack/web-api";
+import type { Block, KnownBlock } from "@slack/web-api";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { requireRuntimeConfig } from "openclaw/plugin-sdk/plugin-config-runtime";
 import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
@@ -16,7 +16,7 @@ export type SlackActionClientOpts = {
   cfg?: OpenClawConfig;
   accountId?: string;
   token?: string;
-  client?: WebClient;
+  client?: SlackApiClient;
 };
 
 export type SlackMessageSummary = {
@@ -133,7 +133,7 @@ async function getClient(opts: SlackActionClientOpts = {}, mode: "read" | "write
   return mode === "write" ? getSlackWriteClient(token) : createSlackWebClient(token);
 }
 
-async function resolveBotUserId(client: WebClient) {
+async function resolveBotUserId(client: SlackApiClient) {
   const auth = await client.auth.test();
   if (!auth?.user_id) {
     throw new Error("Failed to resolve Slack bot user id");

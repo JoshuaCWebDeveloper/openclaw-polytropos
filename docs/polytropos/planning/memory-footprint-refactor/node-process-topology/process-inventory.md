@@ -303,6 +303,7 @@ The decision between embedded vs CLI execution is controlled by:
 - If false: calls `runEmbeddedPiAgent(...)` → stays in-process
 
 The CLI backend check looks for:
+
 1. Runtime CLI backends loaded from `src/plugins/cli-backends.runtime.ts`
 2. Configured CLI backends in `cfg.agents.defaults.cliBackends`
 
