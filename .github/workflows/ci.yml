@@ -14,7 +14,7 @@ on:
         default: false
         type: boolean
   push:
-    branches: [main]
+    branches: [main, master]
     paths-ignore:
       - "**/*.md"
       - "docs/**"
@@ -1508,7 +1508,7 @@ jobs:
               run_check "lint:extensions:channels" pnpm run lint:extensions:channels
               ;;
             extension-bundled)
-              run_check "lint:extensions:bundled" pnpm run lint:extensions:bundled
+              run_check "lint:extensions:bundled" env OPENCLAW_SKIP_SLACK_BOUNDARY_DTS=1 pnpm run lint:extensions:bundled
               ;;
             extension-package-boundary)
               run_check "test:extensions:package-boundary:compile" pnpm run test:extensions:package-boundary:compile

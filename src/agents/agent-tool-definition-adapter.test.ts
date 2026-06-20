@@ -13,6 +13,9 @@ import {
 import type { ClientToolDefinition } from "./embedded-agent-runner/run/params.js";
 
 type ToolExecute = ReturnType<typeof toToolDefinitions>[number]["execute"];
+type ObjectSchemaWithProperties = {
+  properties?: Record<string, unknown>;
+};
 const extensionContext = {} as Parameters<ToolExecute>[4];
 
 async function executeThrowingTool(name: string, callId: string) {
@@ -164,12 +167,14 @@ describe("toClientToolDefinitions – param coercion", () => {
       throw new Error("missing client tool definition");
     }
 
-    expect(definition.parameters.properties).toMatchObject({
+    expect((definition.parameters as ObjectSchemaWithProperties).properties).toMatchObject({
       cmd: { type: "string" },
       background: { type: "boolean" },
     });
     expect(
       validateToolArguments(definition, {
+        type: "toolCall",
+        id: "call-c1",
         name: "exec_command",
         arguments: { cmd: "sleep 1", background: true },
       }),

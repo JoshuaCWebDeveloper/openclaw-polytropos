@@ -1,4 +1,3 @@
-import type { WebClient as SlackWebClient } from "@slack/web-api";
 import { runTasksWithConcurrency } from "openclaw/plugin-sdk/concurrency-runtime";
 import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import {
@@ -6,6 +5,7 @@ import {
   readStringValue as readString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { formatSlackFileReference } from "../../file-reference.js";
+import type { SlackApiClient } from "../../client.js";
 import type { SlackFile, SlackMessageEvent } from "../../types.js";
 import { MAX_SLACK_MEDIA_FILES, type SlackMediaResult } from "../media-types.js";
 import type { SlackThreadStarter } from "../thread.js";
@@ -289,7 +289,7 @@ export async function resolveSlackMessageContent(params: {
   threadStarter: SlackThreadStarter | null;
   isBotMessage: boolean;
   botToken: string;
-  client?: SlackWebClient;
+  client?: Pick<SlackApiClient, "files">;
   mediaMaxBytes: number;
   resolveUserName?: (userId: string) => Promise<{ name?: string }>;
   mediaReadIdleTimeoutMs?: number;

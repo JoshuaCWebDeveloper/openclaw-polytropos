@@ -1,11 +1,11 @@
-import type { Block, KnownBlock, WebClient } from "@slack/web-api";
+import type { Block, KnownBlock } from "@slack/web-api";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { requireRuntimeConfig } from "openclaw/plugin-sdk/plugin-config-runtime";
 import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { z } from "zod";
 import { resolveSlackAccount } from "./accounts.js";
 import { validateSlackBlocksArray } from "./blocks-input.js";
-import { createSlackWebClient, getSlackWriteClient } from "./client.js";
+import { createSlackWebClient, getSlackWriteClient, type SlackApiClient } from "./client.js";
 import { buildSlackEditTextPayload } from "./edit-text.js";
 import { resolveSlackMedia } from "./monitor/media.js";
 import type { SlackMediaResult } from "./monitor/media.js";
@@ -16,7 +16,7 @@ export type SlackActionClientOpts = {
   cfg?: OpenClawConfig;
   accountId?: string;
   token?: string;
-  client?: WebClient;
+  client?: SlackApiClient;
 };
 
 export type SlackMessageSummary = {
@@ -133,7 +133,7 @@ async function getClient(opts: SlackActionClientOpts = {}, mode: "read" | "write
   return mode === "write" ? getSlackWriteClient(token) : createSlackWebClient(token);
 }
 
-async function resolveBotUserId(client: WebClient) {
+async function resolveBotUserId(client: SlackApiClient) {
   const auth = await client.auth.test();
   if (!auth?.user_id) {
     throw new Error("Failed to resolve Slack bot user id");
@@ -271,9 +271,12 @@ export async function editSlackMessage(
   channelId: string,
   messageId: string,
   content: string,
-  opts: SlackActionClientOpts & { blocks?: (Block | KnownBlock)[] } = {},
+  opts: Omit<SlackActionClientOpts, "client"> & {
+    client?: SlackApiClient;
+    blocks?: (Block | KnownBlock)[];
+  } = {},
 ) {
-  const client = await getClient(opts, "write");
+  const client = opts.client ?? (await getClient(opts, "write"));
   const blocks = opts.blocks == null ? undefined : validateSlackBlocksArray(opts.blocks);
   await client.chat.update({
     channel: channelId,

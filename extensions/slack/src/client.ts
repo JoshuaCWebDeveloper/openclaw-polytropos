@@ -5,6 +5,52 @@ import { resolveSlackWebClientOptions, resolveSlackWriteClientOptions } from "./
 const SLACK_WRITE_CLIENT_CACHE_MAX = 32;
 const slackWriteClientCache = new Map<string, WebClient>();
 
+type SlackWebClientMethod<TMethod> = TMethod extends (...args: infer Args) => infer Result
+  ? (...args: Args) => Result
+  : never;
+
+export type SlackApiClient = {
+  auth: {
+    test: SlackWebClientMethod<WebClient["auth"]["test"]>;
+  };
+  chat: {
+    delete: SlackWebClientMethod<WebClient["chat"]["delete"]>;
+    postMessage: SlackWebClientMethod<WebClient["chat"]["postMessage"]>;
+    update: SlackWebClientMethod<WebClient["chat"]["update"]>;
+  };
+  conversations: {
+    history: SlackWebClientMethod<WebClient["conversations"]["history"]>;
+    open: SlackWebClientMethod<WebClient["conversations"]["open"]>;
+    replies: SlackWebClientMethod<WebClient["conversations"]["replies"]>;
+  };
+  files: {
+    completeUploadExternal: SlackWebClientMethod<WebClient["files"]["completeUploadExternal"]>;
+    getUploadURLExternal: SlackWebClientMethod<WebClient["files"]["getUploadURLExternal"]>;
+    info: SlackWebClientMethod<WebClient["files"]["info"]>;
+  };
+  reactions: {
+    add: SlackWebClientMethod<WebClient["reactions"]["add"]>;
+    get: SlackWebClientMethod<WebClient["reactions"]["get"]>;
+    remove: SlackWebClientMethod<WebClient["reactions"]["remove"]>;
+  };
+  users: {
+    info: SlackWebClientMethod<WebClient["users"]["info"]>;
+  };
+  emoji: {
+    list: SlackWebClientMethod<WebClient["emoji"]["list"]>;
+  };
+  pins: {
+    add: SlackWebClientMethod<WebClient["pins"]["add"]>;
+    list: SlackWebClientMethod<WebClient["pins"]["list"]>;
+    remove: SlackWebClientMethod<WebClient["pins"]["remove"]>;
+  };
+  usergroups: {
+    users: {
+      list: SlackWebClientMethod<WebClient["usergroups"]["users"]["list"]>;
+    };
+  };
+};
+
 export {
   resolveSlackWebClientOptions,
   resolveSlackWriteClientOptions,

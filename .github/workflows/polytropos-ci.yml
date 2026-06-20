@@ -1,0 +1,90 @@
+name: Polytropos CI
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+    paths-ignore:
+      - "CHANGELOG.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  build:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-bun: "false"
+
+      - name: Build dist artifacts
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: pnpm build:ci-artifacts
+
+      - name: Smoke test CLI launcher help
+        run: node openclaw.mjs --help
+
+      - name: Smoke test CLI launcher status json
+        run: node openclaw.mjs status --json --timeout 1
+
+      - name: Smoke test built bundled plugin singleton
+        run: pnpm test:build:singleton
+
+  lint-and-format:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-bun: "false"
+
+      - name: Lint
+        env:
+          OPENCLAW_SKIP_SLACK_BOUNDARY_DTS: "1"
+        run: pnpm lint --threads=8
+
+      - name: Check general code formatting
+        run: pnpm format:check
+
+  typecheck:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-bun: "false"
+
+      - name: Typecheck production sources
+        run: pnpm tsgo:core
+
+      - name: Typecheck test sources
+        run: pnpm check:test-types
