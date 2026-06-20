@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createWriteStream } from "node:fs";
 import os from "node:os";
@@ -103,6 +104,53 @@ async function downloadArtifactToFile(url: string, targetPath: string) {
     await fs.promises.rename(tempPath, targetPath);
   } finally {
     await fs.promises.rm(tempPath, { force: true });
+  }
+}
+
+async function stageRegistryPackageArchive(params: {
+  packageName: string;
+  version: string;
+  targetPath: string;
+}) {
+  const stagingDir = await fs.promises.mkdtemp(
+    path.join(os.tmpdir(), "openclaw-polytropos-plugin-pack-"),
+  );
+  await fs.promises.mkdir(path.dirname(params.targetPath), { recursive: true });
+  try {
+    const rawOutput = execFileSync(
+      "npm",
+      [
+        "pack",
+        `${params.packageName}@${params.version}`,
+        "--pack-destination",
+        stagingDir,
+        "--silent",
+      ],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    const fileName = rawOutput
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .at(-1);
+    if (!fileName) {
+      throw new Error(
+        `npm pack did not report an archive filename for ${params.packageName}@${params.version}`,
+      );
+    }
+    const stagedPackPath = path.join(stagingDir, fileName);
+    if (!fs.existsSync(stagedPackPath)) {
+      throw new Error(
+        `npm pack did not produce ${fileName} for ${params.packageName}@${params.version}`,
+      );
+    }
+    await fs.promises.rm(params.targetPath, { force: true });
+    await fs.promises.rename(stagedPackPath, params.targetPath);
+  } finally {
+    await fs.promises.rm(stagingDir, { recursive: true, force: true });
   }
 }
 
@@ -255,7 +303,20 @@ async function installPluginTargetsFromInventory(params: {
     });
     const stagedArtifactPath = path.join(resolvePluginReleaseStageDir(), fileName);
     try {
-      await downloadArtifactToFile(target.artifactUrl, stagedArtifactPath);
+      try {
+        await stageRegistryPackageArchive({
+          packageName: target.packageName,
+          version: target.releaseVersion,
+          targetPath: stagedArtifactPath,
+        });
+      } catch (npmPackError) {
+        params.logger.warn(
+          `npm pack failed for ${target.packageName}@${target.releaseVersion}; falling back to artifact URL download: ${String(
+            npmPackError,
+          )}`,
+        );
+        await downloadArtifactToFile(target.artifactUrl, stagedArtifactPath);
+      }
       const existingRecord = params.installRecords[target.pluginId];
       const extensionsDir = existingRecord?.installPath
         ? resolveRecordedExtensionsDir({
