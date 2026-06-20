@@ -5,7 +5,30 @@ import { resolveSlackWebClientOptions, resolveSlackWriteClientOptions } from "./
 const SLACK_WRITE_CLIENT_CACHE_MAX = 32;
 const slackWriteClientCache = new Map<string, WebClient>();
 
-export type SlackApiClient = Pick<WebClient, "chat" | "conversations" | "files" | "usergroups">;
+type SlackWebClientMethod<TMethod> = TMethod extends (...args: infer Args) => infer Result
+  ? (...args: Args) => Result
+  : never;
+
+export type SlackApiClient = {
+  chat: {
+    postMessage: SlackWebClientMethod<WebClient["chat"]["postMessage"]>;
+    update: SlackWebClientMethod<WebClient["chat"]["update"]>;
+  };
+  conversations: {
+    history: SlackWebClientMethod<WebClient["conversations"]["history"]>;
+    open: SlackWebClientMethod<WebClient["conversations"]["open"]>;
+    replies: SlackWebClientMethod<WebClient["conversations"]["replies"]>;
+  };
+  files: {
+    completeUploadExternal: SlackWebClientMethod<WebClient["files"]["completeUploadExternal"]>;
+    getUploadURLExternal: SlackWebClientMethod<WebClient["files"]["getUploadURLExternal"]>;
+  };
+  usergroups: {
+    users: {
+      list: SlackWebClientMethod<WebClient["usergroups"]["users"]["list"]>;
+    };
+  };
+};
 
 export {
   resolveSlackWebClientOptions,
