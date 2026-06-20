@@ -398,7 +398,9 @@ export function parseArgs(argv) {
     }
     if (a === "--run-id") {
       const v = args[i + 1];
-      if (!v) fail("--run-id requires a GitHub Actions run id");
+      if (!v) {
+        fail("--run-id requires a GitHub Actions run id");
+      }
       runId = v;
       i++;
       continue;
@@ -763,8 +765,11 @@ async function main(argv = process.argv) {
           const d = stack.pop();
           for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
             const pth = path.join(d, ent.name);
-            if (ent.isDirectory()) stack.push(pth);
-            else if (ent.isFile() && ent.name.endsWith(".tgz")) matches.push(pth);
+            if (ent.isDirectory()) {
+              stack.push(pth);
+            } else if (ent.isFile() && ent.name.endsWith(".tgz")) {
+              matches.push(pth);
+            }
           }
         }
         return matches;
