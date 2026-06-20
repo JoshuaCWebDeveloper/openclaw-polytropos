@@ -27,13 +27,15 @@ async function shRetry(logStream, label, fn, { tries = 5, baseDelayMs = 1000 } =
   for (let attempt = 1; attempt <= tries; attempt++) {
     try {
       return await fn(attempt);
-    } catch (e) {
-      lastErr = e;
-      const msg = String(e && e.message ? e.message : e);
+    } catch (error) {
+      lastErr = error;
+      const msg = String(error && error.message ? error.message : error);
       // Retry only for known transient install races
       const transient =
         msg.includes("ETXTBSY") || msg.includes("ENOTEMPTY") || msg.includes("EEXIST");
-      if (!transient || attempt == tries) throw e;
+      if (!transient || attempt === tries) {
+        throw error;
+      }
       const delay = Math.min(8000, baseDelayMs * attempt);
       banner(
         logStream,
@@ -120,13 +122,21 @@ function tgzInternalVersion(tgzPath) {
 }
 
 function assertReleaseStoreConsistent(relRoot) {
-  if (!fs.existsSync(relRoot)) return;
+  if (!fs.existsSync(relRoot)) {
+    return;
+  }
   const entries = fs.readdirSync(relRoot, { withFileTypes: true });
   for (const e of entries) {
-    if (!e.isFile()) continue;
-    if (!e.name.startsWith("v") || !e.name.endsWith(".tgz")) continue;
+    if (!e.isFile()) {
+      continue;
+    }
+    if (!e.name.startsWith("v") || !e.name.endsWith(".tgz")) {
+      continue;
+    }
     const m = e.name.match(/^v(.+?)(?:(?:\+|-)?poly\.\d+)?\.tgz$/);
-    if (!m) continue;
+    if (!m) {
+      continue;
+    }
     const expected = m[1];
     const full = path.join(relRoot, e.name);
     const info = tgzInternalVersion(full);
@@ -144,7 +154,9 @@ function assertReleaseStoreConsistent(relRoot) {
 function getGlobalPrefix() {
   // Prefer explicit npm prefix; else default to ~/.npm-global used by the gateway service.
   const p = process.env.OPENCLAW_GLOBAL_PREFIX;
-  if (p) return p;
+  if (p) {
+    return p;
+  }
   return path.join(resolveHome(), ".npm-global");
 }
 
@@ -169,19 +181,21 @@ async function shTee(logStream, cmd, args, opts = {}) {
     child.on("close", (code, signal) => {
       if (code === 0) {
         resolve();
-        return;
+      } else {
+        reject(
+          new Error(
+            `command failed: ${cmd} ${args.join(" ")} (code=${code ?? "null"}, signal=${signal ?? "null"})`,
+          ),
+        );
       }
-      reject(
-        new Error(
-          `command failed: ${cmd} ${args.join(" ")} (code=${code ?? "null"}, signal=${signal ?? "null"})`,
-        ),
-      );
     });
   });
 }
 
 function sleepMs(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function findRunIdForTag({ logStream, ghRepo, wf, releaseTag, timeoutMs = 180000 }) {
@@ -208,7 +222,7 @@ async function findRunIdForTag({ logStream, ghRepo, wf, releaseTag, timeoutMs = 
         // Only accept the tag push run (headBranch==releaseTag); otherwise return empty and retry
         `.[] | select(.headBranch=="${releaseTag}") | .databaseId`,
       ]);
-    } catch (e) {
+    } catch {
       // ignore and retry
     }
     if (runId) {
@@ -220,6 +234,7 @@ async function findRunIdForTag({ logStream, ghRepo, wf, releaseTag, timeoutMs = 
     await sleepMs(delay);
   }
   fail(`could not find workflow run for tag ${releaseTag} within ${timeoutMs}ms`);
+  throw new Error(`could not find workflow run for tag ${releaseTag} within ${timeoutMs}ms`);
 }
 
 function banner(logStream, s) {
@@ -232,10 +247,15 @@ function inferGhRepoFromOrigin() {
   // Supports: git@github.com:owner/repo.git OR https://github.com/owner/repo.git
   const url = sh("git", ["remote", "get-url", "origin"]);
   const m1 = url.match(/github\.com[:/](.+?)\.git$/);
-  if (m1) return m1[1];
+  if (m1) {
+    return m1[1];
+  }
   const m2 = url.match(/github\.com[:/](.+?)$/);
-  if (m2) return m2[1];
+  if (m2) {
+    return m2[1];
+  }
   fail(`could not infer GitHub repo from origin url: ${url}`);
+  throw new Error(`could not infer GitHub repo from origin url: ${url}`);
 }
 
 function computeNextReleaseTag() {
@@ -246,9 +266,13 @@ function computeNextReleaseTag() {
   let maxN = -1;
   for (const line of tags.split(/\r?\n/)) {
     const m = line.match(/(?:\+|-)poly\.(\d+)$/);
-    if (!m) continue;
+    if (!m) {
+      continue;
+    }
     const n = Number(m[1]);
-    if (Number.isFinite(n) && n > maxN) maxN = n;
+    if (Number.isFinite(n) && n > maxN) {
+      maxN = n;
+    }
   }
   const nextN = maxN + 1;
   return `v${ver}-poly.${nextN}`;
@@ -306,42 +330,54 @@ function parseArgs(argv) {
     const a = args[i];
     if (a === "--log") {
       const v = args[i + 1];
-      if (!v) fail("--log requires a path");
+      if (!v) {
+        fail("--log requires a path");
+      }
       logPath = v;
       i++;
       continue;
     }
     if (a === "--repo") {
       const v = args[i + 1];
-      if (!v) fail("--repo requires owner/repo");
+      if (!v) {
+        fail("--repo requires owner/repo");
+      }
       repo = v;
       i++;
       continue;
     }
     if (a === "--workflow") {
       const v = args[i + 1];
-      if (!v) fail("--workflow requires a filename (e.g. polytropos-build-pack.yml)");
+      if (!v) {
+        fail("--workflow requires a filename (e.g. polytropos-build-pack.yml)");
+      }
       workflow = v;
       i++;
       continue;
     }
     if (a === "--tag") {
       const v = args[i + 1];
-      if (!v) fail("--tag requires v<ver>-poly.<N>");
+      if (!v) {
+        fail("--tag requires v<ver>-poly.<N>");
+      }
       releaseTag = v;
       i++;
       continue;
     }
     if (a === "--base-ref") {
       const v = args[i + 1];
-      if (!v) fail("--base-ref requires a git ref");
+      if (!v) {
+        fail("--base-ref requires a git ref");
+      }
       baseRef = v;
       i++;
       continue;
     }
     if (a === "--head-ref") {
       const v = args[i + 1];
-      if (!v) fail("--head-ref requires a git ref");
+      if (!v) {
+        fail("--head-ref requires a git ref");
+      }
       headRef = v;
       i++;
       continue;
@@ -553,8 +589,11 @@ try {
         const d = stack.pop();
         for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
           const pth = path.join(d, ent.name);
-          if (ent.isDirectory()) stack.push(pth);
-          else if (ent.isFile() && ent.name.endsWith(".tgz")) matches.push(pth);
+          if (ent.isDirectory()) {
+            stack.push(pth);
+          } else if (ent.isFile() && ent.name.endsWith(".tgz")) {
+            matches.push(pth);
+          }
         }
       }
       return matches;

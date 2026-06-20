@@ -8,7 +8,6 @@ import {
   collectChangedPathsFromGitRange,
   collectExtensionPackageJsonCandidates,
   parsePluginReleaseSelection,
-  type PluginPackageJson,
 } from "./lib/plugin-npm-release.ts";
 import {
   GITHUB_PACKAGES_REGISTRY_URL,
@@ -216,7 +215,7 @@ function collectChangedPluginPackageNames(params: {
   const sharedChanged = changedPaths.some((entry) => SHARED_PLUGIN_PATHS.includes(entry as never));
   if (sharedChanged) {
     return new Set(
-      collectExtensionPackageJsonCandidates<PluginPackageJson>(params.rootDir)
+      collectExtensionPackageJsonCandidates(params.rootDir)
         .filter((candidate) => candidate.packageJson.openclaw?.release?.publishToNpm === true)
         .map((candidate) => candidate.packageJson.name?.trim())
         .filter((entry): entry is string => Boolean(entry)),
@@ -228,7 +227,7 @@ function collectChangedPluginPackageNames(params: {
   );
 
   return new Set(
-    collectExtensionPackageJsonCandidates<PluginPackageJson>(params.rootDir)
+    collectExtensionPackageJsonCandidates(params.rootDir)
       .filter((candidate) => changedExtensionIds.has(candidate.extensionId))
       .map((candidate) => candidate.packageJson.name?.trim())
       .filter((entry): entry is string => Boolean(entry)),
@@ -286,7 +285,7 @@ function buildPluginEntries(
   trackedPackages: string[],
 ): PackageInventoryEntry[] {
   const rootDir = path.resolve(".");
-  const candidates = collectExtensionPackageJsonCandidates<PluginPackageJson>(rootDir);
+  const candidates = collectExtensionPackageJsonCandidates(rootDir);
   const trackedPlugins = trackedPackages.filter((packageName) => packageName !== "openclaw");
   const candidateByPackageName = new Map(
     candidates
