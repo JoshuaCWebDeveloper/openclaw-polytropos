@@ -34,5 +34,5 @@ git merge origin/master
 
 Once the release branch builds cleanly and behaves correctly:
 
-- use the core release procedure to cut the next `vYYYY.M.D+poly.N` tag
+- use the core release procedure to cut the next `vYYYY.M.D-poly.N` tag
 - stage/install that release inventory from the same release branch

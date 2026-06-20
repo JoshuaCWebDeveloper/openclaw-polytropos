@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - "v*poly.*"
+      - "v*-poly.*"
 
 permissions:
   contents: read
@@ -46,7 +46,7 @@ jobs:
           fi
 
           release_tag="${REF_NAME}"
-          if [[ ! "${release_tag}" =~ ^v([0-9]{4}\.[0-9]+\.[0-9]+)\+poly\.[0-9]+$ ]]; then
+          if [[ ! "${release_tag}" =~ ^v([0-9]{4}\.[0-9]+\.[0-9]+)-poly\.[0-9]+$ ]]; then
             echo "Tag ${release_tag} does not match the Polytropos release format; skipping build."
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -151,12 +151,9 @@ jobs:
         id: release_package_version
         run: |
           set -euo pipefail
-          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-core"
-          latest_published_version="$(npm view "${published_name}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" 2>/dev/null || true)"
           release_package_version="$(
-            node --import tsx -e 'import { resolveNextPolytroposPublishedPackageVersion } from "./scripts/lib/polytropos-github-packages.ts"; process.stdout.write(resolveNextPolytroposPublishedPackageVersion({ releaseTag: process.argv[1], latestPublishedVersion: process.argv[2] || null }));' \
-              "${RELEASE_TAG}" \
-              "${latest_published_version}"
+            node --import tsx -e 'import { resolvePolytroposPackageVersionFromReleaseTag } from "./scripts/lib/polytropos-github-packages.ts"; process.stdout.write(resolvePolytroposPackageVersionFromReleaseTag(process.argv[1]));' \
+              "${RELEASE_TAG}"
           )"
           echo "release_package_version=${release_package_version}" >> "$GITHUB_OUTPUT"
           echo "RELEASE_PACKAGE_VERSION=${release_package_version}" >> "$GITHUB_ENV"
@@ -422,7 +419,7 @@ jobs:
 
           mkdir -p .local
           tracked_plugins="$(jq -r '.[] | select(. != "openclaw")' .github/polytropos-tracked-packages.json | paste -sd, -)"
-          previous_release_tag="$(git tag -l 'v*+poly.*' | grep -Fxv "${RELEASE_TAG}" | sort -V | tail -n 1 || true)"
+          previous_release_tag="$(git tag -l 'v*-poly.*' | grep -Fxv "${RELEASE_TAG}" | sort -V | tail -n 1 || true)"
 
           inventory_args=(
             --tracked-packages-file .github/polytropos-tracked-packages.json

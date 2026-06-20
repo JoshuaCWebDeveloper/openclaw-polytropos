@@ -125,7 +125,7 @@ Default safe rule for core:
 
 ### 5) Full package inventory artifact
 
-Each workflow run should emit one canonical inventory artifact, e.g. `v2026.6.1+poly.58.json`, containing every tracked package:
+Each workflow run should emit one canonical inventory artifact, e.g. `v2026.6.1-poly.58.json`, containing every tracked package:
 
 - package name
 - latest version

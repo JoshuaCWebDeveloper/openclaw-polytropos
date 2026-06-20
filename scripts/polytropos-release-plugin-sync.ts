@@ -61,7 +61,7 @@ function resolvePluginReleaseStageDir() {
 }
 
 function resolveInventoryPath(headRef: string | undefined): string | null {
-  if (!headRef || !/^v.+\+poly\.\d+$/.test(headRef)) {
+  if (!headRef || !/^v.+-poly\.\d+$/.test(headRef)) {
     return null;
   }
   return path.join(resolvePolytroposReleasesRoot(), `${headRef}.package-inventory.json`);

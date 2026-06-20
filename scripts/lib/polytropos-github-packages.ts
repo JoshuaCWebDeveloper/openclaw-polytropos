@@ -1,8 +1,6 @@
 export const GITHUB_PACKAGES_REGISTRY_URL = "https://npm.pkg.github.com";
 
-const POLYTROPOS_RELEASE_TAG_REGEX = /^v(?<base>\d{4}\.\d+\.\d+)\+poly\.(?<correction>[1-9]\d*)$/;
-const STABLE_VERSION_REGEX = /^(?<base>\d{4}\.\d+\.\d+)$/;
-const CORRECTION_VERSION_REGEX = /^(?<base>\d{4}\.\d+\.\d+)-(?<correction>[1-9]\d*)$/;
+const POLYTROPOS_RELEASE_TAG_REGEX = /^v(?<version>\d{4}\.\d+\.\d+-poly\.[1-9]\d*)$/;
 
 function normalizeScope(rawScope: string): string {
   const normalized = rawScope.trim().replace(/^@/, "").toLowerCase();
@@ -44,37 +42,5 @@ export function resolvePolytroposPackageVersionFromReleaseTag(releaseTag: string
   if (!match?.groups) {
     throw new Error(`Invalid Polytropos release tag: ${releaseTag}`);
   }
-  return `${match.groups.base}-${match.groups.correction}`;
-}
-
-export function resolveNextPolytroposPublishedPackageVersion(params: {
-  releaseTag: string;
-  latestPublishedVersion?: string | null;
-}): string {
-  const normalizedTag = params.releaseTag.trim();
-  const releaseTagMatch = POLYTROPOS_RELEASE_TAG_REGEX.exec(normalizedTag);
-  if (!releaseTagMatch?.groups) {
-    throw new Error(`Invalid Polytropos release tag: ${params.releaseTag}`);
-  }
-
-  const baseVersion = releaseTagMatch.groups.base;
-  const latestPublishedVersion = params.latestPublishedVersion?.trim() ?? "";
-  if (!latestPublishedVersion) {
-    return `${baseVersion}-1`;
-  }
-
-  const correctionMatch = CORRECTION_VERSION_REGEX.exec(latestPublishedVersion);
-  if (correctionMatch?.groups?.base === baseVersion) {
-    const correctionNumber = Number.parseInt(correctionMatch.groups.correction, 10);
-    if (Number.isInteger(correctionNumber) && correctionNumber >= 1) {
-      return `${baseVersion}-${correctionNumber + 1}`;
-    }
-  }
-
-  const stableMatch = STABLE_VERSION_REGEX.exec(latestPublishedVersion);
-  if (stableMatch?.groups?.base === baseVersion) {
-    return `${baseVersion}-1`;
-  }
-
-  return `${baseVersion}-1`;
+  return match.groups.version;
 }
