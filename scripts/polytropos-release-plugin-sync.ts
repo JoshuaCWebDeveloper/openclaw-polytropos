@@ -150,7 +150,8 @@ async function stageRegistryPackageArchive(params: {
       );
     }
     await fs.promises.rm(params.targetPath, { force: true });
-    await fs.promises.rename(stagedPackPath, params.targetPath);
+    await fs.promises.copyFile(stagedPackPath, params.targetPath);
+    await fs.promises.rm(stagedPackPath, { force: true });
   } finally {
     await fs.promises.rm(stagingDir, { recursive: true, force: true });
   }
