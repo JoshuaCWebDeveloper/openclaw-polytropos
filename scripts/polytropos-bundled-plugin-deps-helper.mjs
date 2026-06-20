@@ -9,7 +9,7 @@
  *   against a specific installed package root (and is ready for future Polytropos-specific changes).
  *
  * Compatibility:
-  * - Core logic mirrors the upstream helper: discover runtime deps declared by bundled plugins under
+ * - Core logic mirrors the upstream helper: discover runtime deps declared by bundled plugins under
  *   `dist/extensions/<pluginId>/package.json`, then ensure those deps exist at the package root `node_modules`.
  */
 import { execSync } from "node:child_process";
@@ -19,8 +19,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const BUNDLED_PLUGIN_INSTALL_TARGETS = [];
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_PACKAGE_ROOT = resolve(__dirname, "..");
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_PACKAGE_ROOT = resolve(currentDir, "..");
 
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
@@ -93,10 +93,11 @@ export function discoverBundledPluginRuntimeDeps(params = {}) {
   }
 
   return [...deps.values()]
-    .map((dep) => ({
-      ...dep,
-      pluginIds: [...dep.pluginIds].toSorted((a, b) => a.localeCompare(b)),
-    }))
+    .map((dep) =>
+      Object.assign({}, dep, {
+        pluginIds: [...dep.pluginIds].toSorted((a, b) => a.localeCompare(b)),
+      }),
+    )
     .toSorted((a, b) => a.name.localeCompare(b.name));
 }
 

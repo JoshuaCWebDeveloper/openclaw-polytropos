@@ -15,6 +15,7 @@ import type { AnyChunk, MessageMetadata } from "@slack/types";
 import type { WebClient } from "@slack/web-api";
 import type { ChatStreamer } from "@slack/web-api/dist/chat-stream.js";
 import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
+import type { SlackApiClient } from "./client.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,7 +23,7 @@ import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
 
 export type SlackStreamSession = {
   /** The SDK ChatStreamer instance managing this stream. */
-  streamer: ChatStreamer;
+  streamer: SlackChatStreamer;
   /** Channel this stream lives in. */
   channel: string;
   /** Thread timestamp (required for streaming). */
@@ -40,8 +41,14 @@ export type SlackStreamSession = {
   pendingText: string;
 };
 
+type SlackChatStreamer = Pick<ChatStreamer, "append" | "stop">;
+
+type SlackStreamingClient = SlackApiClient & {
+  chatStream: (params: Parameters<WebClient["chatStream"]>[0]) => SlackChatStreamer;
+};
+
 type StartSlackStreamParams = {
-  client: WebClient;
+  client: SlackStreamingClient;
   channel: string;
   threadTs: string;
   /** Optional initial markdown text to include in the stream start. */

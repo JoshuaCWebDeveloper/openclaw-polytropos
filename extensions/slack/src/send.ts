@@ -1,5 +1,5 @@
 import type { MessageMetadata } from "@slack/types";
-import type { Block, KnownBlock, WebClient } from "@slack/web-api";
+import type { Block, KnownBlock } from "@slack/web-api";
 import {
   createMessageReceiptFromOutboundResults,
   type MessageReceipt,
@@ -28,7 +28,7 @@ import type { SlackTokenSource } from "./accounts.js";
 import { resolveSlackAccount } from "./accounts.js";
 import { buildSlackBlocksFallbackText } from "./blocks-fallback.js";
 import { validateSlackBlocksArray } from "./blocks-input.js";
-import { createSlackTokenCacheKey, getSlackWriteClient } from "./client.js";
+import { createSlackTokenCacheKey, getSlackWriteClient, type SlackApiClient } from "./client.js";
 import { markdownToSlackMrkdwnChunks } from "./format.js";
 import { SLACK_TEXT_LIMIT } from "./limits.js";
 import { loadOutboundMediaFromUrl } from "./runtime-api.js";
@@ -105,7 +105,7 @@ type SlackSendOpts = {
   uploadTitle?: string;
   mediaLocalRoots?: readonly string[];
   mediaReadFile?: (filePath: string) => Promise<Buffer>;
-  client?: WebClient;
+  client?: SlackApiClient;
   threadTs?: string;
   replyBroadcast?: boolean;
   identity?: SlackSendIdentity;
@@ -310,7 +310,7 @@ function isSlackCustomizeScopeError(err: unknown): boolean {
 }
 
 async function postSlackMessageBestEffort(params: {
-  client: WebClient;
+  client: SlackApiClient;
   channelId: string;
   text: string;
   threadTs?: string;
@@ -499,7 +499,7 @@ function resolvePostedMessageChannelId(response: { channel?: unknown }, fallback
 }
 
 async function resolveChannelId(
-  client: WebClient,
+  client: SlackApiClient,
   recipient: SlackRecipient,
   params: { accountId?: string; token: string },
 ): Promise<{ channelId: string; isDm?: boolean; cacheHit?: boolean }> {
@@ -541,7 +541,7 @@ export function clearSlackSendQueuesForTest(): void {
 }
 
 async function uploadSlackFile(params: {
-  client: WebClient;
+  client: SlackApiClient;
   channelId: string;
   mediaUrl: string;
   mediaAccess?: {
