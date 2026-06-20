@@ -220,6 +220,7 @@ async function findRunIdForTag({ logStream, ghRepo, wf, releaseTag, timeoutMs = 
     await sleepMs(delay);
   }
   fail(`could not find workflow run for tag ${releaseTag} within ${timeoutMs}ms`);
+  return "";
 }
 
 function banner(logStream, s) {

@@ -84,7 +84,7 @@ jobs:
           install-bun: "false"
 
       - name: Typecheck production sources
-        run: pnpm tsgo:prod
+        run: pnpm tsgo:core
 
       - name: Typecheck test sources
         run: pnpm check:test-types

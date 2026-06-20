@@ -72,7 +72,9 @@ async function readSlackSubteamUsers(params: {
       return new Set();
     }
     const users = new Set(
-      (response.users ?? []).map((userId) => normalizeSlackId(userId)).filter(Boolean) as string[],
+      (response.users ?? [])
+        .map((userId: unknown) => normalizeSlackId(userId))
+        .filter(Boolean) as string[],
     );
     const expiresAt = resolveExpiresAtMsFromDurationMs(SUBTEAM_MEMBER_CACHE_TTL_MS, {
       nowMs: params.now,

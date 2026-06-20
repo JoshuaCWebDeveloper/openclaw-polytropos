@@ -5,7 +5,7 @@ import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { z } from "zod";
 import { resolveSlackAccount } from "./accounts.js";
 import { validateSlackBlocksArray } from "./blocks-input.js";
-import { createSlackWebClient, getSlackWriteClient } from "./client.js";
+import { createSlackWebClient, getSlackWriteClient, type SlackApiClient } from "./client.js";
 import { buildSlackEditTextPayload } from "./edit-text.js";
 import { resolveSlackMedia } from "./monitor/media.js";
 import type { SlackMediaResult } from "./monitor/media.js";
@@ -271,9 +271,12 @@ export async function editSlackMessage(
   channelId: string,
   messageId: string,
   content: string,
-  opts: SlackActionClientOpts & { blocks?: (Block | KnownBlock)[] } = {},
+  opts: Omit<SlackActionClientOpts, "client"> & {
+    client?: Pick<SlackApiClient, "chat">;
+    blocks?: (Block | KnownBlock)[];
+  } = {},
 ) {
-  const client = await getClient(opts, "write");
+  const client = opts.client ?? ((await getClient(opts, "write")) as Pick<SlackApiClient, "chat">);
   const blocks = opts.blocks == null ? undefined : validateSlackBlocksArray(opts.blocks);
   await client.chat.update({
     channel: channelId,

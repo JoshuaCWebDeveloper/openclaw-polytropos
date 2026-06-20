@@ -45,7 +45,8 @@ async function readSlackMessageAfterEditError(params: {
       limit: 100,
     });
     const reply = (replyResult.messages ?? []).find(
-      (message) => (message as SlackReadbackMessage | undefined)?.ts === params.messageId,
+      (message: unknown) =>
+        (message as SlackReadbackMessage | undefined)?.ts === params.messageId,
     ) as SlackReadbackMessage | undefined;
     return reply ?? null;
   }
