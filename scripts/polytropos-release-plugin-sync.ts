@@ -136,8 +136,7 @@ async function stageRegistryPackageArchive(params: {
     const fileName = rawOutput
       .split(/\r?\n/u)
       .map((line) => line.trim())
-      .filter(Boolean)
-      .at(-1);
+      .findLast(Boolean);
     if (!fileName) {
       throw new Error(
         `npm pack did not report an archive filename for ${params.packageName}@${params.version}`,
@@ -182,7 +181,7 @@ export function resolveReleaseManagedNpmPluginTargets(params: {
         entry.packageType === "plugin" &&
         typeof entry.packageName === "string" &&
         typeof entry.latestVersion === "string" &&
-        entry.changed === true,
+        entry.changed,
     ) ?? [];
 
   if (inventoryPackages.length > 0) {
@@ -214,7 +213,7 @@ export function resolveReleaseManagedNpmPluginTargets(params: {
         integrity: entry.integrity,
       });
     }
-    return targets.sort((left, right) => left.pluginId.localeCompare(right.pluginId));
+    return targets.toSorted((left, right) => left.pluginId.localeCompare(right.pluginId));
   }
 
   const changedExtensionIds = params.gitRange
@@ -258,7 +257,7 @@ export function resolveReleaseManagedNpmPluginTargets(params: {
     });
   }
 
-  return targets.sort((left, right) => left.pluginId.localeCompare(right.pluginId));
+  return targets.toSorted((left, right) => left.pluginId.localeCompare(right.pluginId));
 }
 
 async function installPluginTargetsFromInventory(params: {
