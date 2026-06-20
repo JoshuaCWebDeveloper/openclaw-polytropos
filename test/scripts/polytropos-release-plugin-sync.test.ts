@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 import { buildInstallCommand } from "../../scripts/lib/polytropos-release-install.mjs";
 import { buildPostInstallPluginSyncCommand } from "../../scripts/lib/polytropos-release-plugin-sync.mjs";
 import { resolveReleaseManagedNpmPluginTargets } from "../../scripts/polytropos-release-plugin-sync.ts";
+import {
+  createSanitizedTemporaryConfigPath,
+  parseArgs,
+} from "../../scripts/polytropos-release.mjs";
 
 describe("polytropos release helpers", () => {
   it("builds an install command that delegates back into the release script with a tgz path", () => {
@@ -30,6 +34,99 @@ describe("polytropos release helpers", () => {
         "/tmp/polytropos-release.log",
       ],
     });
+  });
+
+  it("passes explicit sanitized config mode through delegated install commands", () => {
+    const repoRoot = "/work/openclaw";
+    expect(
+      buildInstallCommand({
+        repoRoot,
+        tgzPath: "/tmp/openclaw-current.tgz",
+        baseRef: "v2026.6.1-poly.69",
+        headRef: "v2026.6.1-poly.70",
+        logPath: "/tmp/polytropos-release.log",
+        pluginSyncConfig: "sanitized-temp",
+      }),
+    ).toEqual({
+      cmd: "node",
+      args: [
+        path.join(repoRoot, "scripts", "polytropos-release.mjs"),
+        "install",
+        "/tmp/openclaw-current.tgz",
+        "--base-ref",
+        "v2026.6.1-poly.69",
+        "--head-ref",
+        "v2026.6.1-poly.70",
+        "--log",
+        "/tmp/polytropos-release.log",
+        "--plugin-sync-config",
+        "sanitized-temp",
+      ],
+    });
+  });
+
+  it("parses existing release run reuse without requesting a new poly tag", () => {
+    expect(
+      parseArgs([
+        "node",
+        "scripts/polytropos-release.mjs",
+        "release",
+        "--tag",
+        "v2026.6.1-poly.70",
+        "--run-id",
+        "123456789",
+        "--rerun-run",
+        "--repo",
+        "openclaw/openclaw",
+      ]),
+    ).toMatchObject({
+      cmd: "release",
+      releaseTag: "v2026.6.1-poly.70",
+      runId: "123456789",
+      rerunRun: true,
+      repo: "openclaw/openclaw",
+    });
+  });
+
+  it("creates a sanitized temporary config by deleting only session.reset", () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-release-test-"));
+    const liveConfigPath = path.join(root, "openclaw.json");
+    fs.writeFileSync(
+      liveConfigPath,
+      JSON.stringify(
+        {
+          plugins: {
+            entries: {
+              codex: {
+                enabled: true,
+                config: { provider: "openai" },
+              },
+            },
+          },
+          session: {
+            reset: { invalidLegacyObject: true },
+            maintenance: { maxAgeDays: 30 },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    const configPath = createSanitizedTemporaryConfigPath({
+      ...process.env,
+      OPENCLAW_CONFIG_PATH: liveConfigPath,
+    });
+    try {
+      const sanitized = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      expect(path.dirname(configPath)).toBe(root);
+      expect(sanitized.plugins.entries.codex).toEqual({
+        enabled: true,
+        config: { provider: "openai" },
+      });
+      expect(sanitized.session).toEqual({ maintenance: { maxAgeDays: 30 } });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("runs the release-owned plugin sync helper against the freshly installed package root", () => {

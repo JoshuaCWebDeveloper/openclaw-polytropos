@@ -12,6 +12,9 @@ export function buildInstallCommand(params) {
   if (params.logPath) {
     args.push("--log", params.logPath);
   }
+  if (params.pluginSyncConfig && params.pluginSyncConfig !== "auto") {
+    args.push("--plugin-sync-config", params.pluginSyncConfig);
+  }
   return {
     cmd: "node",
     args,
