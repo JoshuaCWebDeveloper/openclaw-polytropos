@@ -249,7 +249,7 @@ function stableJsonStringify(value: unknown): string {
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
     return `{${Object.keys(record)
-      .sort()
+      .toSorted()
       .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`)
       .join(",")}}`;
   }

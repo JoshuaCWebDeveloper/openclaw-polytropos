@@ -1,10 +1,10 @@
-import type { WebClient } from "@slack/web-api";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import {
   asDateTimestampMs,
   resolveExpiresAtMsFromDurationMs,
 } from "openclaw/plugin-sdk/number-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import type { SlackApiClient } from "../../client.js";
 
 const SUBTEAM_MENTION_RE = /<!subteam\^([A-Z0-9]+)(?:\|[^>]*)?>/gi;
 const SUBTEAM_MEMBER_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -14,7 +14,7 @@ type CacheEntry = {
   users: ReadonlySet<string>;
 };
 
-let subteamMemberCache = new WeakMap<WebClient, Map<string, CacheEntry>>();
+let subteamMemberCache = new WeakMap<SlackApiClient, Map<string, CacheEntry>>();
 
 export function normalizeSlackId(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim().toUpperCase() : undefined;
@@ -35,7 +35,7 @@ export function extractSlackSubteamMentionIds(text?: string | null): string[] {
 }
 
 async function readSlackSubteamUsers(params: {
-  client: WebClient;
+  client: SlackApiClient;
   subteamId: string;
   teamId?: string;
   now: number;
@@ -93,7 +93,7 @@ async function readSlackSubteamUsers(params: {
 }
 
 export async function isSlackSubteamMentionForBot(params: {
-  client: WebClient;
+  client: SlackApiClient;
   text?: string | null;
   botUserId?: string | null;
   teamId?: string;
@@ -125,5 +125,5 @@ export async function isSlackSubteamMentionForBot(params: {
 }
 
 export function clearSlackSubteamMentionCacheForTest(): void {
-  subteamMemberCache = new WeakMap<WebClient, Map<string, CacheEntry>>();
+  subteamMemberCache = new WeakMap<SlackApiClient, Map<string, CacheEntry>>();
 }

@@ -1,4 +1,3 @@
-import type { WebClient as SlackWebClient } from "@slack/web-api";
 import { pruneMapToMaxSize } from "openclaw/plugin-sdk/collection-runtime";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import {
@@ -6,6 +5,7 @@ import {
   resolveExpiresAtMsFromDurationMs,
 } from "openclaw/plugin-sdk/number-runtime";
 import { formatSlackFileReferenceList } from "../file-reference.js";
+import type { SlackApiClient } from "../client.js";
 import type { SlackFile } from "../types.js";
 import { logVerbose } from "./thread.runtime.js";
 
@@ -47,7 +47,7 @@ function formatSlackFilePlaceholder(files: SlackFile[] | undefined): string {
 export async function resolveSlackThreadStarter(params: {
   channelId: string;
   threadTs: string;
-  client: SlackWebClient;
+  client: SlackApiClient;
 }): Promise<SlackThreadStarter | null> {
   evictThreadStarterCache();
   const cacheKey = `${params.channelId}:${params.threadTs}`;
@@ -142,7 +142,7 @@ type SlackRepliesPage = {
 export async function resolveSlackThreadHistory(params: {
   channelId: string;
   threadTs: string;
-  client: SlackWebClient;
+  client: SlackApiClient;
   currentMessageTs?: string;
   limit?: number;
 }): Promise<SlackThreadMessage[]> {

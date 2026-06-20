@@ -5,6 +5,8 @@ import { resolveSlackWebClientOptions, resolveSlackWriteClientOptions } from "./
 const SLACK_WRITE_CLIENT_CACHE_MAX = 32;
 const slackWriteClientCache = new Map<string, WebClient>();
 
+export type SlackApiClient = { [Key in keyof WebClient]: WebClient[Key] };
+
 export {
   resolveSlackWebClientOptions,
   resolveSlackWriteClientOptions,

@@ -16,20 +16,25 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-
 async function shRetry(logStream, label, fn, { tries = 5, baseDelayMs = 1000 } = {}) {
   let lastErr = null;
   for (let attempt = 1; attempt <= tries; attempt++) {
     try {
       return await fn(attempt);
-    } catch (e) {
-      lastErr = e;
-      const msg = String(e && e.message ? e.message : e);
+    } catch (error) {
+      lastErr = error;
+      const msg = String(error && error.message ? error.message : error);
       // Retry only for known transient install races
-      const transient = msg.includes("ETXTBSY") || msg.includes("ENOTEMPTY") || msg.includes("EEXIST");
-      if (!transient || attempt == tries) throw e;
+      const transient =
+        msg.includes("ETXTBSY") || msg.includes("ENOTEMPTY") || msg.includes("EEXIST");
+      if (!transient || attempt === tries) {
+        throw error;
+      }
       const delay = Math.min(8000, baseDelayMs * attempt);
-      banner(logStream, `${label} failed (attempt ${attempt}/${tries}) with transient error; retrying in ${delay}ms`);
+      banner(
+        logStream,
+        `${label} failed (attempt ${attempt}/${tries}) with transient error; retrying in ${delay}ms`,
+      );
       await sleepMs(delay);
     }
   }
@@ -103,13 +108,21 @@ function tgzInternalVersion(tgzPath) {
 }
 
 function assertReleaseStoreConsistent(relRoot) {
-  if (!fs.existsSync(relRoot)) return;
+  if (!fs.existsSync(relRoot)) {
+    return;
+  }
   const entries = fs.readdirSync(relRoot, { withFileTypes: true });
   for (const e of entries) {
-    if (!e.isFile()) continue;
-    if (!e.name.startsWith("v") || !e.name.endsWith(".tgz")) continue;
+    if (!e.isFile()) {
+      continue;
+    }
+    if (!e.name.startsWith("v") || !e.name.endsWith(".tgz")) {
+      continue;
+    }
     const m = e.name.match(/^v([^+]+)(?:\+poly\.\d+)?\.tgz$/);
-    if (!m) continue;
+    if (!m) {
+      continue;
+    }
     const expected = m[1];
     const full = path.join(relRoot, e.name);
     const info = tgzInternalVersion(full);
@@ -127,7 +140,9 @@ function assertReleaseStoreConsistent(relRoot) {
 function getGlobalPrefix() {
   // Prefer explicit npm prefix; else default to ~/.npm-global used by the gateway service.
   const p = process.env.OPENCLAW_GLOBAL_PREFIX;
-  if (p) return p;
+  if (p) {
+    return p;
+  }
   return path.join(resolveHome(), ".npm-global");
 }
 
@@ -152,19 +167,21 @@ async function shTee(logStream, cmd, args, opts = {}) {
     child.on("close", (code, signal) => {
       if (code === 0) {
         resolve();
-        return;
+      } else {
+        reject(
+          new Error(
+            `command failed: ${cmd} ${args.join(" ")} (code=${code ?? "null"}, signal=${signal ?? "null"})`,
+          ),
+        );
       }
-      reject(
-        new Error(
-          `command failed: ${cmd} ${args.join(" ")} (code=${code ?? "null"}, signal=${signal ?? "null"})`,
-        ),
-      );
     });
   });
 }
 
 function sleepMs(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function findRunIdForTag({ logStream, ghRepo, wf, releaseTag, timeoutMs = 180000 }) {
@@ -183,7 +200,7 @@ async function findRunIdForTag({ logStream, ghRepo, wf, releaseTag, timeoutMs = 
         wf,
         "--event",
         "push",
-                "--limit",
+        "--limit",
         "20",
         "--json",
         "databaseId,headBranch",
@@ -191,7 +208,7 @@ async function findRunIdForTag({ logStream, ghRepo, wf, releaseTag, timeoutMs = 
         // Only accept the tag push run (headBranch==releaseTag); otherwise return empty and retry
         `.[] | select(.headBranch=="${releaseTag}") | .databaseId`,
       ]);
-    } catch (e) {
+    } catch {
       // ignore and retry
     }
     if (runId) {
@@ -211,15 +228,19 @@ function banner(logStream, s) {
   teeWriteStream(logStream, line);
 }
 
-
 function inferGhRepoFromOrigin() {
   // Supports: git@github.com:owner/repo.git OR https://github.com/owner/repo.git
   const url = sh("git", ["remote", "get-url", "origin"]);
   const m1 = url.match(/github\.com[:/](.+?)\.git$/);
-  if (m1) return m1[1];
+  if (m1) {
+    return m1[1];
+  }
   const m2 = url.match(/github\.com[:/](.+?)$/);
-  if (m2) return m2[1];
+  if (m2) {
+    return m2[1];
+  }
   fail(`could not infer GitHub repo from origin url: ${url}`);
+  return "";
 }
 
 function computeNextReleaseTag() {
@@ -230,9 +251,13 @@ function computeNextReleaseTag() {
   let maxN = -1;
   for (const line of tags.split(/\r?\n/)) {
     const m = line.match(/\+poly\.(\d+)$/);
-    if (!m) continue;
+    if (!m) {
+      continue;
+    }
     const n = Number(m[1]);
-    if (Number.isFinite(n) && n > maxN) maxN = n;
+    if (Number.isFinite(n) && n > maxN) {
+      maxN = n;
+    }
   }
   const nextN = maxN + 1;
   return `v${ver}+poly.${nextN}`;
@@ -252,28 +277,36 @@ function parseArgs(argv) {
     const a = args[i];
     if (a === "--log") {
       const v = args[i + 1];
-      if (!v) fail("--log requires a path");
+      if (!v) {
+        fail("--log requires a path");
+      }
       logPath = v;
       i++;
       continue;
     }
     if (a === "--repo") {
       const v = args[i + 1];
-      if (!v) fail("--repo requires owner/repo");
+      if (!v) {
+        fail("--repo requires owner/repo");
+      }
       repo = v;
       i++;
       continue;
     }
     if (a === "--workflow") {
       const v = args[i + 1];
-      if (!v) fail("--workflow requires a filename (e.g. polytropos-build-pack.yml)");
+      if (!v) {
+        fail("--workflow requires a filename (e.g. polytropos-build-pack.yml)");
+      }
       workflow = v;
       i++;
       continue;
     }
     if (a === "--tag") {
       const v = args[i + 1];
-      if (!v) fail("--tag requires v<ver>+poly.<N>");
+      if (!v) {
+        fail("--tag requires v<ver>+poly.<N>");
+      }
       releaseTag = v;
       i++;
       continue;
@@ -304,7 +337,7 @@ Behavior (single flow):
 `);
 }
 
-const { cmd, logPath, repo, workflow, releaseTag } = parseArgs(process.argv);
+const { cmd, logPath, repo, workflow, releaseTag: parsedReleaseTag } = parseArgs(process.argv);
 if (!cmd || cmd === "--help") {
   usage();
   process.exit(0);
@@ -314,9 +347,7 @@ if (cmd !== "release") {
   fail(`unknown command: ${cmd}`);
 }
 
-if (!releaseTag) {
-  releaseTag = computeNextReleaseTag();
-}
+const releaseTag = parsedReleaseTag ?? computeNextReleaseTag();
 if (!/^v[^+]+\+poly\.\d+$/.test(releaseTag)) {
   fail(`invalid --tag: ${releaseTag} (expected v<ver>+poly.<N>)`);
 }
@@ -332,8 +363,8 @@ banner(logStream, `GitHub repo: ${ghRepo}`);
 banner(logStream, `Workflow: ${wf}`);
 banner(logStream, `Release tag: ${releaseTag}`);
 
-  const releaseBranch = assertValidReleaseBranch();
-  banner(logStream, `Release branch: ${releaseBranch}`);
+const releaseBranch = assertValidReleaseBranch();
+banner(logStream, `Release branch: ${releaseBranch}`);
 
 // Ensure release store is consistent before we touch it
 const relRoot = releasesRoot();
@@ -345,7 +376,13 @@ try {
   sh("git", ["rev-parse", "--verify", `refs/tags/${releaseTag}`]);
 } catch {
   banner(logStream, `Creating tag locally: ${releaseTag}`);
-  await shTee(logStream, "git", ["tag", "-a", releaseTag, "-m", `Polytropos release ${releaseTag}`]);
+  await shTee(logStream, "git", [
+    "tag",
+    "-a",
+    releaseTag,
+    "-m",
+    `Polytropos release ${releaseTag}`,
+  ]);
 }
 
 banner(logStream, `Pushing tag: ${releaseTag}`);
@@ -353,7 +390,14 @@ await shTee(logStream, "git", ["push", "origin", releaseTag]);
 
 // Dispatch workflow explicitly for this tag (avoids tag-push trigger flakes)
 banner(logStream, "Dispatching workflow...");
-await shTee(logStream, "gh", ["api", "-X", "POST", `/repos/${ghRepo}/actions/workflows/${wf}/dispatches`, "-f", `ref=${releaseTag}`]);
+await shTee(logStream, "gh", [
+  "api",
+  "-X",
+  "POST",
+  `/repos/${ghRepo}/actions/workflows/${wf}/dispatches`,
+  "-f",
+  `ref=${releaseTag}`,
+]);
 
 // Locate the workflow run (eventual consistency: retry)
 banner(logStream, "Locating workflow run...");
@@ -384,10 +428,16 @@ function findTgz(dir) {
   const stack = [dir];
   while (stack.length) {
     const d = stack.pop();
+    if (!d) {
+      continue;
+    }
     for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
       const pth = path.join(d, ent.name);
-      if (ent.isDirectory()) stack.push(pth);
-      else if (ent.isFile() && ent.name.endsWith(".tgz")) matches.push(pth);
+      if (ent.isDirectory()) {
+        stack.push(pth);
+      } else if (ent.isFile() && ent.name.endsWith(".tgz")) {
+        matches.push(pth);
+      }
     }
   }
   return matches;
@@ -421,7 +471,9 @@ if (fs.existsSync(tarPath)) {
     fail(`unexpected package name in existing tgz: ${info.name}`);
   }
   if (info.version !== expectedVersion) {
-    fail(`existing tgz version ${info.version} != expected ${expectedVersion} (from ${releaseTag})`);
+    fail(
+      `existing tgz version ${info.version} != expected ${expectedVersion} (from ${releaseTag})`,
+    );
   }
 } else {
   fs.copyFileSync(tgzPath, tarPath);
@@ -440,7 +492,10 @@ if (currentTarget) {
   banner(logStream, `Setting previous.tgz -> ${currentTarget}`);
   lnSfn(currentTarget, previousTgz);
 } else {
-  banner(logStream, "No existing current.tgz symlink; setting previous.tgz to this tarball as bootstrap");
+  banner(
+    logStream,
+    "No existing current.tgz symlink; setting previous.tgz to this tarball as bootstrap",
+  );
   lnSfn(tarPath, previousTgz);
 }
 
@@ -451,15 +506,15 @@ lnSfn(tarPath, currentTgz);
 const prefix = getGlobalPrefix();
 banner(logStream, `Installing globally into prefix: ${prefix}`);
 // Safety: move aside any existing global install dir to avoid partial/dirty trees after crashes
-  {
-    const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
-    const installedRoot = path.join(npmRoot, "openclaw");
-    if (fs.existsSync(installedRoot)) {
-      const bak = `${installedRoot}.bak-${timestampForFilename()}`;
-      banner(logStream, `Moving aside existing global install: ${installedRoot} -> ${bak}`);
-      fs.renameSync(installedRoot, bak);
-    }
+{
+  const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
+  const installedRoot = path.join(npmRoot, "openclaw");
+  if (fs.existsSync(installedRoot)) {
+    const bak = `${installedRoot}.bak-${timestampForFilename()}`;
+    banner(logStream, `Moving aside existing global install: ${installedRoot} -> ${bak}`);
+    fs.renameSync(installedRoot, bak);
   }
+}
 
 await shRetry(logStream, "npm install -g", async () => {
   await shTee(logStream, "npm", ["install", "-g", "--prefix", prefix, currentTgz]);
@@ -470,7 +525,11 @@ banner(logStream, "Running Polytropos bundled plugin deps helper...");
 {
   const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
   const installedRoot = path.join(npmRoot, "openclaw");
-  const helperPath = path.join(installedRoot, "scripts", "polytropos-bundled-plugin-deps-helper.mjs");
+  const helperPath = path.join(
+    installedRoot,
+    "scripts",
+    "polytropos-bundled-plugin-deps-helper.mjs",
+  );
   if (!fs.existsSync(helperPath)) {
     fail(`Polytropos helper not found at ${helperPath}`);
   }
@@ -482,16 +541,18 @@ banner(logStream, "Running Polytropos bundled plugin deps helper...");
 
 banner(logStream, "Activation required: restart the gateway to run the new code");
 banner(logStream, "Release staged (not activated).");
-logStream.end();function currentBranchName() {
+logStream.end();
+
+function currentBranchName() {
   return sh("git", ["branch", "--show-current"]);
 }
 
 function assertValidReleaseBranch() {
   const branch = currentBranchName();
   if (!/^release\/\d{4}\.\d{1,2}\.\d{1,2}$/.test(branch)) {
-    fail(`release script must run from a valid release branch (release/YYYY.M.D (matching the version/tag format)); current branch: ${branch}`);
+    fail(
+      `release script must run from a valid release branch (release/YYYY.M.D (matching the version/tag format)); current branch: ${branch}`,
+    );
   }
   return branch;
 }
-
-
