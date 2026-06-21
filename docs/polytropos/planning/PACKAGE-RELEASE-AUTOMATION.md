@@ -21,9 +21,9 @@ Make Polytropos core and every tracked Polytropos plugin follow one release auto
 
 - Repo: `openclaw-polytropos`
 - Current packaging workflow: `.github/workflows/polytropos-build-pack.yml`
-- Current output: a release-tagged core tarball artifact plus a package inventory artifact with GitHub Packages locators for tracked packages
+- Current output: GitHub Packages publications plus a package inventory artifact with GitHub Packages locators for tracked packages
 - Current downstream install path: `scripts/polytropos-release.mjs`
-- Current release script contract: find or reuse a tag workflow run, download `openclaw-tgz-<tag>` and `polytropos-package-inventory-<tag>`, stage both in `~/polytropos/releases/`, install the staged tarball, and run plugin sync
+- Current release script contract: find or reuse a tag workflow run, download `polytropos-package-inventory-<tag>`, stage package archives under `~/polytropos/releases/packages/`, install the staged core package, and run plugin sync from the same inventory
 
 ### Plugins
 
@@ -142,18 +142,20 @@ That inventory file becomes the local release artifact.
 
 Downstream should consume the inventory, not rediscover packages ad hoc.
 
-Current first-pass flow:
+Current flow:
 
-1. Download the core tarball and release inventory from the same tag workflow run
-2. Stage the tarball as the install artifact for that release tag
-3. Stage the inventory beside it for tracked package/plugin provenance
-4. Install core from the staged tarball
-5. Run plugin sync across the previous release tag and current release tag
+1. Download the release inventory from the selected tag workflow run
+2. Resolve core and tracked plugin package metadata from that inventory
+3. Store downloaded package archives under `~/polytropos/releases/packages/`
+4. Reuse any already-downloaded local archive for the same package/version instead of downloading or packing it again
+5. Install core from the staged package archive
+6. Run plugin sync across the previous release tag and current release tag using the same inventory
 
 Implementation consequence:
 
-- the inventory is not yet the core install artifact; stale reruns must download both tag-named artifacts from the selected workflow run
-- a local staging/cache directory like `~/polytropos/releases/plugins` remains a reasonable future default for downloaded plugin artifacts before install
+- the release inventory is authoritative metadata, not an install archive
+- `~/polytropos/releases/packages/` is the authoritative local package archive store for both core and plugins
+- stale reruns should prefer local package archives when the inventory points at a package/version that is already stored
 
 Implementation rule:
 

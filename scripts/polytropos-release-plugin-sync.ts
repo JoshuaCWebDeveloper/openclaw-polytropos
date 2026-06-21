@@ -1,9 +1,6 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { createWriteStream } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pipeline } from "node:stream/promises";
 import { pathToFileURL } from "node:url";
 import { commitPluginInstallRecordsWithConfig } from "../src/cli/plugins-install-record-commit.js";
 import { extractInstalledNpmPackageName } from "../src/cli/plugins-install-records.js";
@@ -23,6 +20,7 @@ import {
   collectChangedExtensionIdsFromGitRange,
   collectPublishablePluginPackages,
 } from "./lib/plugin-npm-release.ts";
+import { ensureStoredReleasePackage } from "./lib/polytropos-release-package-store.mjs";
 
 type LoggerLine = { level: "info" | "warn" | "error"; message: string };
 
@@ -59,10 +57,6 @@ function resolvePolytroposReleasesRoot() {
   return path.join(resolveHome(), "polytropos", "releases");
 }
 
-function resolvePluginReleaseStageDir() {
-  return path.join(resolvePolytroposReleasesRoot(), "plugins");
-}
-
 function resolveInventoryPath(headRef: string | undefined): string | null {
   if (!headRef || !/^v.+-poly\.\d+$/.test(headRef)) {
     return null;
@@ -77,83 +71,6 @@ function loadReleaseInventory(headRef: string | undefined): PackageInventory | n
   }
   const parsed = JSON.parse(fs.readFileSync(inventoryPath, "utf8")) as PackageInventory;
   return parsed && Array.isArray(parsed.packages) ? parsed : null;
-}
-
-function sanitizeArtifactFileName(params: {
-  packageName: string;
-  version: string;
-  artifactUrl: string;
-}) {
-  try {
-    const candidate = path.basename(new URL(params.artifactUrl).pathname);
-    if (candidate && candidate.endsWith(".tgz")) {
-      return candidate;
-    }
-  } catch {}
-  return `${params.packageName.replaceAll("/", "-").replaceAll("@", "")}-${params.version}.tgz`;
-}
-
-async function downloadArtifactToFile(url: string, targetPath: string) {
-  const response = await fetch(url);
-  if (!response.ok || !response.body) {
-    throw new Error(`artifact download failed: ${url} (HTTP ${response.status})`);
-  }
-  const tempPath = `${targetPath}.tmp`;
-  await fs.promises.mkdir(path.dirname(targetPath), { recursive: true });
-  await fs.promises.rm(tempPath, { force: true });
-  try {
-    await pipeline(response.body, createWriteStream(tempPath));
-    await fs.promises.rename(tempPath, targetPath);
-  } finally {
-    await fs.promises.rm(tempPath, { force: true });
-  }
-}
-
-async function stageRegistryPackageArchive(params: {
-  packageName: string;
-  version: string;
-  targetPath: string;
-}) {
-  const stagingDir = await fs.promises.mkdtemp(
-    path.join(os.tmpdir(), "openclaw-polytropos-plugin-pack-"),
-  );
-  await fs.promises.mkdir(path.dirname(params.targetPath), { recursive: true });
-  try {
-    const rawOutput = execFileSync(
-      "npm",
-      [
-        "pack",
-        `${params.packageName}@${params.version}`,
-        "--pack-destination",
-        stagingDir,
-        "--silent",
-      ],
-      {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    const fileName = rawOutput
-      .split(/\r?\n/u)
-      .map((line) => line.trim())
-      .findLast(Boolean);
-    if (!fileName) {
-      throw new Error(
-        `npm pack did not report an archive filename for ${params.packageName}@${params.version}`,
-      );
-    }
-    const stagedPackPath = path.join(stagingDir, fileName);
-    if (!fs.existsSync(stagedPackPath)) {
-      throw new Error(
-        `npm pack did not produce ${fileName} for ${params.packageName}@${params.version}`,
-      );
-    }
-    await fs.promises.rm(params.targetPath, { force: true });
-    await fs.promises.copyFile(stagedPackPath, params.targetPath);
-    await fs.promises.rm(stagedPackPath, { force: true });
-  } finally {
-    await fs.promises.rm(stagingDir, { recursive: true, force: true });
-  }
 }
 
 function resolveRecordedExtensionsDir(params: {
@@ -300,27 +217,15 @@ async function installPluginTargetsFromInventory(params: {
       continue;
     }
 
-    const fileName = sanitizeArtifactFileName({
-      packageName: target.packageName,
-      version: target.releaseVersion,
-      artifactUrl: target.artifactUrl,
-    });
-    const stagedArtifactPath = path.join(resolvePluginReleaseStageDir(), fileName);
     try {
-      try {
-        await stageRegistryPackageArchive({
-          packageName: target.registryPackageName,
-          version: target.releaseVersion,
-          targetPath: stagedArtifactPath,
-        });
-      } catch (npmPackError) {
-        params.logger.warn(
-          `npm pack failed for ${target.registryPackageName}@${target.releaseVersion}; falling back to artifact URL download: ${String(
-            npmPackError,
-          )}`,
-        );
-        await downloadArtifactToFile(target.artifactUrl, stagedArtifactPath);
-      }
+      const stagedArtifactPath = await ensureStoredReleasePackage({
+        relRoot: resolvePolytroposReleasesRoot(),
+        packageName: target.packageName,
+        registryPackageName: target.registryPackageName,
+        version: target.releaseVersion,
+        artifactUrl: target.artifactUrl,
+        logger: params.logger,
+      });
       const existingRecord = params.installRecords[target.pluginId];
       const extensionsDir = existingRecord?.installPath
         ? resolveRecordedExtensionsDir({

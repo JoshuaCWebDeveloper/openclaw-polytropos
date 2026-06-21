@@ -1,14 +1,21 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import * as tar from "tar";
 import { describe, expect, it } from "vitest";
 import { buildInstallCommand } from "../../scripts/lib/polytropos-release-install.mjs";
+import {
+  ensureStoredReleasePackage,
+  resolvePackageReleaseStoreDir,
+  resolveStoredReleasePackagePath,
+} from "../../scripts/lib/polytropos-release-package-store.mjs";
 import { buildPostInstallPluginSyncCommand } from "../../scripts/lib/polytropos-release-plugin-sync.mjs";
 import { resolveReleaseManagedNpmPluginTargets } from "../../scripts/polytropos-release-plugin-sync.ts";
 import {
+  assertReleaseStoreConsistent,
   createSanitizedTemporaryConfigPath,
   parseArgs,
   resolvePolytroposReleaseArtifacts,
+  resolveReleaseCoreInstallPackagePath,
   stageDownloadedReleaseTarball,
 } from "../../scripts/polytropos-release.mjs";
 
@@ -22,7 +29,7 @@ function createTestOpenClawTgz(root: string, version: string, marker: string) {
   );
   fs.writeFileSync(path.join(packageDir, "MARKER.txt"), `${marker}\n`);
   const tgzPath = path.join(root, `openclaw-${version}-${marker}.tgz`);
-  execFileSync("tar", ["-czf", tgzPath, "-C", pkgDir, "package"]);
+  tar.c({ cwd: pkgDir, file: tgzPath, gzip: true, sync: true }, ["package"]);
   return tgzPath;
 }
 
@@ -32,7 +39,7 @@ describe("polytropos release helpers", () => {
     expect(
       buildInstallCommand({
         repoRoot,
-        tgzPath: "/tmp/openclaw-current.tgz",
+        tgzPath: "/tmp/polytropos/releases/packages/openclaw-2026.6.1-poly.53.tgz",
         baseRef: "v2026.6.1+poly.52",
         headRef: "v2026.6.1+poly.53",
         logPath: "/tmp/polytropos-release.log",
@@ -42,7 +49,7 @@ describe("polytropos release helpers", () => {
       args: [
         path.join(repoRoot, "scripts", "polytropos-release.mjs"),
         "install",
-        "/tmp/openclaw-current.tgz",
+        "/tmp/polytropos/releases/packages/openclaw-2026.6.1-poly.53.tgz",
         "--base-ref",
         "v2026.6.1+poly.52",
         "--head-ref",
@@ -58,7 +65,7 @@ describe("polytropos release helpers", () => {
     expect(
       buildInstallCommand({
         repoRoot,
-        tgzPath: "/tmp/openclaw-current.tgz",
+        tgzPath: "/tmp/polytropos/releases/packages/openclaw-2026.6.1-poly.70.tgz",
         baseRef: "v2026.6.1-poly.69",
         headRef: "v2026.6.1-poly.70",
         logPath: "/tmp/polytropos-release.log",
@@ -69,7 +76,7 @@ describe("polytropos release helpers", () => {
       args: [
         path.join(repoRoot, "scripts", "polytropos-release.mjs"),
         "install",
-        "/tmp/openclaw-current.tgz",
+        "/tmp/polytropos/releases/packages/openclaw-2026.6.1-poly.70.tgz",
         "--base-ref",
         "v2026.6.1-poly.69",
         "--head-ref",
@@ -121,6 +128,18 @@ describe("polytropos release helpers", () => {
     });
   });
 
+  it("resolves release artifacts from inventory-only workflow runs", () => {
+    expect(
+      resolvePolytroposReleaseArtifacts({
+        requestedTag: "v2026.6.1-poly.70",
+        artifacts: [{ name: "polytropos-package-inventory-v2026.6.1-poly.70", expired: false }],
+      }),
+    ).toEqual({
+      releaseTag: "v2026.6.1-poly.70",
+      inventoryArtifact: "polytropos-package-inventory-v2026.6.1-poly.70",
+    });
+  });
+
   it("creates a sanitized temporary config by deleting only session.reset", () => {
     const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-release-test-"));
     const liveConfigPath = path.join(root, "openclaw.json");
@@ -162,10 +181,10 @@ describe("polytropos release helpers", () => {
     }
   });
 
-  it("replaces an existing staged tarball when rerunning the same release tag", () => {
+  it("reuses an existing staged core tarball when rerunning the same release tag", () => {
     const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-release-stage-test-"));
     const relRoot = path.join(root, "releases");
-    fs.mkdirSync(relRoot, { recursive: true });
+    fs.mkdirSync(resolvePackageReleaseStoreDir(relRoot), { recursive: true });
     const releaseTag = "v2026.6.1-poly.71";
     const expectedVersion = "2026.6.1";
     const originalTgz = createTestOpenClawTgz(root, expectedVersion, "old");
@@ -178,9 +197,13 @@ describe("polytropos release helpers", () => {
       releaseTag,
       expectedVersion,
     });
-    expect(fs.readFileSync(stagedPath, "utf8")).not.toEqual(
-      fs.readFileSync(replacementTgz, "utf8"),
+    expect(stagedPath).toBe(
+      resolveStoredReleasePackagePath(relRoot, {
+        packageName: "openclaw",
+        version: releaseTag.replace(/^v/, ""),
+      }),
     );
+    const originalBytes = fs.readFileSync(stagedPath);
 
     const replacedPath = stageDownloadedReleaseTarball({
       logStream: process.stdout,
@@ -191,7 +214,110 @@ describe("polytropos release helpers", () => {
     });
 
     expect(replacedPath).toBe(stagedPath);
-    expect(fs.readFileSync(replacedPath)).toEqual(fs.readFileSync(replacementTgz));
+    expect(fs.readFileSync(replacedPath)).toEqual(originalBytes);
+    expect(fs.readFileSync(replacedPath)).not.toEqual(fs.readFileSync(replacementTgz));
+  });
+
+  it("stores all release packages under releases/packages", () => {
+    const relRoot = "/tmp/polytropos/releases";
+    expect(resolvePackageReleaseStoreDir(relRoot)).toBe("/tmp/polytropos/releases/packages");
+    expect(
+      resolveStoredReleasePackagePath(relRoot, {
+        packageName: "@openclaw/codex",
+        version: "2026.6.1-poly.71",
+      }),
+    ).toBe("/tmp/polytropos/releases/packages/openclaw-codex-2026.6.1-poly.71.tgz");
+  });
+
+  it("reuses an already-downloaded local release package", async () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-package-reuse-test-"));
+    const relRoot = path.join(root, "releases");
+    const storedPath = resolveStoredReleasePackagePath(relRoot, {
+      packageName: "@openclaw/codex",
+      version: "2026.6.1-poly.71",
+    });
+    fs.mkdirSync(path.dirname(storedPath), { recursive: true });
+    fs.writeFileSync(storedPath, "existing package");
+    const logs: string[] = [];
+
+    await expect(
+      ensureStoredReleasePackage({
+        relRoot,
+        packageName: "@openclaw/codex",
+        registryPackageName: "@scope/openclaw-polytropos-codex",
+        version: "2026.6.1-poly.71",
+        artifactUrl:
+          "https://npm.pkg.github.com/download/@scope/openclaw-polytropos-codex/2026.6.1-poly.71/archive",
+        logger: {
+          info: (message) => logs.push(message),
+          warn: (message) => logs.push(message),
+        },
+      }),
+    ).resolves.toBe(storedPath);
+
+    expect(fs.readFileSync(storedPath, "utf8")).toBe("existing package");
+    expect(logs).toEqual([`Reusing stored release package ${storedPath}.`]);
+  });
+
+  it("validates stored core packages that use the releases/packages naming scheme", () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-store-check-test-"));
+    const relRoot = path.join(root, "releases");
+    const packageRoot = resolvePackageReleaseStoreDir(relRoot);
+    fs.mkdirSync(packageRoot, { recursive: true });
+    const goodTgz = createTestOpenClawTgz(root, "2026.6.1-poly.71", "good");
+    const goodPath = resolveStoredReleasePackagePath(relRoot, {
+      packageName: "openclaw",
+      version: "2026.6.1-poly.71",
+    });
+    fs.copyFileSync(goodTgz, goodPath);
+
+    try {
+      expect(() => assertReleaseStoreConsistent(relRoot)).not.toThrow();
+      const badTgz = createTestOpenClawTgz(root, "2026.6.2-poly.71", "bad");
+      fs.copyFileSync(badTgz, goodPath);
+      expect(() => assertReleaseStoreConsistent(relRoot)).toThrow(
+        /release store corruption: .*contains version 2026\.6\.2-poly\.71/u,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves the core install package from authoritative inventory metadata", () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-release-store-test-"));
+    const relRoot = path.join(root, "releases");
+    const releaseTag = "v2026.6.1-poly.71";
+    const expectedVersion = "2026.6.1-poly.71";
+    const inventoryPath = path.join(relRoot, `${releaseTag}.package-inventory.json`);
+    const localCorePackage = resolveStoredReleasePackagePath(relRoot, {
+      packageName: "openclaw",
+      version: expectedVersion,
+    });
+    fs.mkdirSync(path.dirname(localCorePackage), { recursive: true });
+    fs.writeFileSync(localCorePackage, "cached core package");
+    fs.writeFileSync(
+      inventoryPath,
+      JSON.stringify(
+        {
+          packages: [
+            {
+              packageName: "openclaw",
+              packageType: "core",
+              latestVersion: expectedVersion,
+              integrity: "sha512-test",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    try {
+      expect(resolveReleaseCoreInstallPackagePath({ relRoot, releaseTag })).toBe(localCorePackage);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("runs the release-owned plugin sync helper against the freshly installed package root", () => {
