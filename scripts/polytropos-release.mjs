@@ -111,7 +111,23 @@ function releasesRoot() {
 }
 
 function inventoryPathForTag(relRoot, releaseTag) {
+  return path.join(relRoot, `${releaseTag}.json`);
+}
+
+function legacyInventoryPathForTag(relRoot, releaseTag) {
   return path.join(relRoot, `${releaseTag}.package-inventory.json`);
+}
+
+function resolveExistingInventoryPathForTag(relRoot, releaseTag) {
+  const inventoryPath = inventoryPathForTag(relRoot, releaseTag);
+  if (fs.existsSync(inventoryPath)) {
+    return inventoryPath;
+  }
+  const legacyInventoryPath = legacyInventoryPathForTag(relRoot, releaseTag);
+  if (fs.existsSync(legacyInventoryPath)) {
+    return legacyInventoryPath;
+  }
+  return inventoryPath;
 }
 
 function releasePackagePathForTag(relRoot, releaseTag) {
@@ -162,6 +178,12 @@ function readReleaseInventory(inventoryPath) {
     throw new Error(`release inventory must contain a packages array: ${inventoryPath}`);
   }
   return parsed;
+}
+
+function releaseTagFromInventoryPath(inventoryPath) {
+  const baseName = path.basename(inventoryPath);
+  const match = /^(v.+(?:\+|-)poly\.\d+)(?:\.package-inventory)?\.json$/u.exec(baseName);
+  return match?.[1] ?? null;
 }
 
 function resolveCoreInventoryEntry(inventory, inventoryPath) {
@@ -455,7 +477,7 @@ function findPreviousReleaseTag(currentTag) {
 export function parseArgs(argv) {
   // Supported:
   //   node scripts/polytropos-release.mjs release [--tag v<ver>-poly.<N>] [--run-id <id>] [--rerun-run] [--repo <owner/repo>] [--workflow <workflow.yml>] [--log <path>]
-  //   node scripts/polytropos-release.mjs install <tgz> [--log <path>] [--plugin-sync-config auto|normal|sanitized-temp]
+  //   node scripts/polytropos-release.mjs install <tgz-or-inventory-json> [--log <path>] [--plugin-sync-config auto|normal|sanitized-temp]
   const args = argv.slice(2);
   const cmd = args[0] || "";
   let logPath = process.env.POLYTROPOS_RELEASE_LOG || defaultLogPath();
@@ -472,7 +494,7 @@ export function parseArgs(argv) {
   if (cmd === "install") {
     installTgz = args[1] || null;
     if (!installTgz) {
-      fail("install requires <tgz>");
+      fail("install requires <tgz-or-inventory-json>");
     }
   }
 
@@ -602,16 +624,16 @@ function usage() {
 
 Usage:
   node scripts/polytropos-release.mjs release [--tag v<ver>-poly.<N>] [--run-id <id> [--rerun-run]] [--repo <owner/repo>] [--workflow <workflow.yml>] [--log <path>]
-  node scripts/polytropos-release.mjs install <tgz> [--base-ref <ref> --head-ref <ref>] [--plugin-sync-config auto|normal|sanitized-temp] [--log <path>]
+  node scripts/polytropos-release.mjs install <tgz-or-inventory-json> [--base-ref <ref> --head-ref <ref>] [--plugin-sync-config auto|normal|sanitized-temp] [--log <path>]
 
 Behavior (single flow):
   - Pushes the release tag to GitHub, unless --run-id reuses an existing tag run
   - Waits for the GitHub Actions workflow run for that tag to complete
   - Downloads artifact polytropos-package-inventory-<tag>
-  - Stages it into ~/polytropos/releases/<tag>.package-inventory.json
+  - Stages it into ~/polytropos/releases/<tag>.json
   - Ensures the inventory core package archive exists in ~/polytropos/releases/packages/
-  - Calls install <tgz> with that package archive to perform the final install steps
-  - install <tgz> performs the global install, bundled deps helper, and managed plugin sync
+  - Calls install with that package archive to perform the final install steps
+  - install <tgz-or-inventory-json> performs the global install, bundled deps helper, and managed plugin sync
   - plugin sync normally uses the live config; --plugin-sync-config sanitized-temp bypasses
     config validation with a temporary copy of the live config minus session.reset, and auto
     retries that way after failure
@@ -684,7 +706,7 @@ export function stageDownloadedReleaseTarball({
 }
 
 export function resolveReleaseCoreInstallPackagePath({ relRoot, releaseTag }) {
-  const inventoryPath = inventoryPathForTag(relRoot, releaseTag);
+  const inventoryPath = resolveExistingInventoryPathForTag(relRoot, releaseTag);
   if (!fs.existsSync(inventoryPath)) {
     throw new Error(`release inventory not found: ${inventoryPath}`);
   }
@@ -697,6 +719,73 @@ export function resolveReleaseCoreInstallPackagePath({ relRoot, releaseTag }) {
     throw new Error(`required core package is not in the release package store: ${packagePath}`);
   }
   return packagePath;
+}
+
+export function resolveInstallPackageInput(inputPath) {
+  const resolvedInputPath = path.resolve(inputPath);
+  if (!fs.existsSync(resolvedInputPath)) {
+    throw new Error(`install package input does not exist: ${resolvedInputPath}`);
+  }
+  if (path.extname(resolvedInputPath) !== ".json") {
+    return { packagePath: resolvedInputPath, releaseTag: null, inventoryPath: null };
+  }
+
+  const inventory = readReleaseInventory(resolvedInputPath);
+  const releaseTag =
+    typeof inventory.releaseTag === "string" && inventory.releaseTag.trim()
+      ? inventory.releaseTag.trim()
+      : releaseTagFromInventoryPath(resolvedInputPath);
+  if (!releaseTag) {
+    throw new Error(`could not infer release tag from inventory: ${resolvedInputPath}`);
+  }
+  const coreEntry = resolveCoreInventoryEntry(inventory, resolvedInputPath);
+  const relRoot = path.dirname(resolvedInputPath);
+  const packagePath = resolveStoredReleasePackagePath(relRoot, {
+    packageName: coreEntry.packageName,
+    version: coreEntry.latestVersion,
+  });
+  if (!fs.existsSync(packagePath)) {
+    throw new Error(`required core package is not in the release package store: ${packagePath}`);
+  }
+  return { packagePath, releaseTag, inventoryPath: resolvedInputPath };
+}
+
+function moveAsideIfExists(logStream, targetPath, label) {
+  if (!fs.existsSync(targetPath) && !fs.existsSync(path.dirname(targetPath))) {
+    return;
+  }
+  try {
+    fs.lstatSync(targetPath);
+  } catch {
+    return;
+  }
+  const bak = `${targetPath}.bak-${timestampForFilename()}`;
+  banner(logStream, `Moving aside existing ${label}: ${targetPath} -> ${bak}`);
+  fs.renameSync(targetPath, bak);
+}
+
+function updateReleasePointers({ logStream, relRoot, packagePath }) {
+  const currentPath = path.join(relRoot, "current.tgz");
+  const previousPath = path.join(relRoot, "previous.tgz");
+  const tempCurrentPath = `${currentPath}.tmp-${process.pid}-${randomUUID()}`;
+  const tempPreviousPath = `${previousPath}.tmp-${process.pid}-${randomUUID()}`;
+  const currentMatchesPackage =
+    fs.existsSync(currentPath) &&
+    fs.statSync(currentPath).size === fs.statSync(packagePath).size &&
+    fs.readFileSync(currentPath).equals(fs.readFileSync(packagePath));
+
+  try {
+    if (fs.existsSync(currentPath) && !currentMatchesPackage) {
+      fs.copyFileSync(currentPath, tempPreviousPath);
+      fs.renameSync(tempPreviousPath, previousPath);
+    }
+    fs.copyFileSync(packagePath, tempCurrentPath);
+    fs.renameSync(tempCurrentPath, currentPath);
+  } finally {
+    fs.rmSync(tempCurrentPath, { force: true });
+    fs.rmSync(tempPreviousPath, { force: true });
+  }
+  banner(logStream, `Updated release package pointers: ${currentPath}, ${previousPath}`);
 }
 
 async function runPostInstallPluginSync({ logStream, pluginSyncCommand, pluginSyncConfig }) {
@@ -743,14 +832,20 @@ async function runPostInstallPluginSync({ logStream, pluginSyncCommand, pluginSy
 }
 
 async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConfig }) {
-  const resolvedTgzPath = path.resolve(tgzPath);
-  if (!fs.existsSync(resolvedTgzPath)) {
-    fail(`install tgz does not exist: ${resolvedTgzPath}`);
+  let installInput;
+  try {
+    installInput = resolveInstallPackageInput(tgzPath);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
   }
+  const resolvedTgzPath = installInput.packagePath;
   const info = tgzInternalVersion(resolvedTgzPath);
   if (!isPolytroposCorePackageName(info.name)) {
     fail(`unexpected package name in install tgz: ${info.name}`);
   }
+  const effectiveHeadRef = headRef ?? installInput.releaseTag ?? null;
+  const effectiveBaseRef =
+    baseRef ?? (effectiveHeadRef ? findPreviousReleaseTag(effectiveHeadRef) : null);
   banner(logStream, `Installing tgz ${resolvedTgzPath} (version ${info.version})`);
 
   const prefix = getGlobalPrefix();
@@ -758,12 +853,9 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConf
   {
     const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
     for (const installedRoot of installedCorePackageRoots(npmRoot, info.name)) {
-      if (fs.existsSync(installedRoot)) {
-        const bak = `${installedRoot}.bak-${timestampForFilename()}`;
-        banner(logStream, `Moving aside existing global install: ${installedRoot} -> ${bak}`);
-        fs.renameSync(installedRoot, bak);
-      }
+      moveAsideIfExists(logStream, installedRoot, "global install");
     }
+    moveAsideIfExists(logStream, path.join(prefix, "bin", "openclaw"), "global bin shim");
   }
 
   await shRetry(logStream, "npm install -g", async () => {
@@ -791,8 +883,8 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConf
     const pluginSyncCommand = buildPostInstallPluginSyncCommand({
       repoRoot: REPO_ROOT,
       installedRoot,
-      baseRef,
-      headRef,
+      baseRef: effectiveBaseRef ?? undefined,
+      headRef: effectiveHeadRef ?? undefined,
     });
     await runPostInstallPluginSync({
       logStream,
@@ -802,6 +894,11 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConf
     banner(logStream, "Release plugin sync completed.");
   }
 
+  updateReleasePointers({
+    logStream,
+    relRoot: releasesRoot(),
+    packagePath: resolvedTgzPath,
+  });
   banner(logStream, "Activation required: restart the gateway to run the new code");
   banner(logStream, `Install completed for version ${info.version} (not activated).`);
 }
