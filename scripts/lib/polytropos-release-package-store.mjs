@@ -73,6 +73,18 @@ export function resolveStoredReleasePackagePath(relRoot, { packageName, version 
   return path.join(resolvePackageReleaseStoreDir(relRoot), `${safePackage}-${safeVersion}.tgz`);
 }
 
+function readStoredPackageMetadata(tgzPath) {
+  const raw = execFileSync("tar", ["-xOzf", tgzPath, "package/package.json"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const parsed = JSON.parse(raw);
+  return {
+    name: typeof parsed?.name === "string" ? parsed.name : "",
+    version: typeof parsed?.version === "string" ? parsed.version : "",
+  };
+}
+
 export async function downloadArtifactToFile(
   url,
   targetPath,
@@ -179,8 +191,24 @@ export async function ensureStoredReleasePackage({
     version,
   });
   if (fs.existsSync(storedPath)) {
-    logger?.info?.(`Reusing stored release package ${storedPath}.`);
-    return storedPath;
+    try {
+      const metadata = readStoredPackageMetadata(storedPath);
+      const allowedNames = new Set([packageName, registryPackageName].filter(Boolean));
+      if (metadata.version === version && allowedNames.has(metadata.name)) {
+        logger?.info?.(`Reusing stored release package ${storedPath}.`);
+        return storedPath;
+      }
+      logger?.warn?.(
+        `Replacing stored release package ${storedPath} because it contains ${metadata.name}@${metadata.version}, expected ${Array.from(
+          allowedNames,
+        ).join(" or ")}@${version}.`,
+      );
+    } catch (error) {
+      logger?.warn?.(
+        `Replacing unreadable stored release package ${storedPath}: ${String(error instanceof Error ? error.message : error)}`,
+      );
+    }
+    await fs.promises.rm(storedPath, { force: true });
   }
 
   try {
