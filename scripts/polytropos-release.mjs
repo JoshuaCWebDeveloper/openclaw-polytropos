@@ -216,12 +216,27 @@ function assertStoredCorePackageConsistent({ fileName, fullPath, info }) {
   if (!isPolytroposCorePackageName(info.name)) {
     throw new Error(`release store corruption: ${fileName} package name ${info.name}`);
   }
-  const allowedVersions = new Set([expectedVersion, stripPolySuffix(expectedVersion)]);
+  const allowedVersions = currentNameMatch
+    ? new Set([expectedVersion])
+    : new Set([expectedVersion, stripPolySuffix(expectedVersion)]);
   if (!allowedVersions.has(info.version)) {
     throw new Error(
       `release store corruption: ${fullPath} contains version ${info.version} (expected ${expectedVersion})`,
     );
   }
+}
+
+function assertCorePackageMatchesExpected({ packagePath, expectedVersion, contextLabel }) {
+  const info = tgzInternalVersion(packagePath);
+  if (!isPolytroposCorePackageName(info.name)) {
+    throw new Error(`${contextLabel} has unexpected package name ${info.name}`);
+  }
+  if (info.version !== expectedVersion) {
+    throw new Error(
+      `${contextLabel} contains version ${info.version} (expected ${expectedVersion})`,
+    );
+  }
+  return info;
 }
 
 export function assertReleaseStoreConsistent(relRoot) {
@@ -718,6 +733,11 @@ export function resolveReleaseCoreInstallPackagePath({ relRoot, releaseTag }) {
   if (!fs.existsSync(packagePath)) {
     throw new Error(`required core package is not in the release package store: ${packagePath}`);
   }
+  assertCorePackageMatchesExpected({
+    packagePath,
+    expectedVersion: coreEntry.latestVersion,
+    contextLabel: `stored core package ${packagePath}`,
+  });
   return packagePath;
 }
 
@@ -747,21 +767,40 @@ export function resolveInstallPackageInput(inputPath) {
   if (!fs.existsSync(packagePath)) {
     throw new Error(`required core package is not in the release package store: ${packagePath}`);
   }
+  assertCorePackageMatchesExpected({
+    packagePath,
+    expectedVersion: coreEntry.latestVersion,
+    contextLabel: `stored core package ${packagePath}`,
+  });
   return { packagePath, releaseTag, inventoryPath: resolvedInputPath };
 }
 
 function moveAsideIfExists(logStream, targetPath, label) {
   if (!fs.existsSync(targetPath) && !fs.existsSync(path.dirname(targetPath))) {
-    return;
+    return null;
   }
   try {
     fs.lstatSync(targetPath);
   } catch {
-    return;
+    return null;
   }
   const bak = `${targetPath}.bak-${timestampForFilename()}`;
   banner(logStream, `Moving aside existing ${label}: ${targetPath} -> ${bak}`);
   fs.renameSync(targetPath, bak);
+  return bak;
+}
+
+function restoreMovedAsidePath(logStream, { targetPath, backupPath, label }) {
+  if (!backupPath || !fs.existsSync(backupPath)) {
+    return;
+  }
+  if (fs.existsSync(targetPath)) {
+    const failedPath = `${targetPath}.failed-${timestampForFilename()}-${process.pid}-${randomUUID()}`;
+    banner(logStream, `Moving aside failed ${label}: ${targetPath} -> ${failedPath}`);
+    fs.renameSync(targetPath, failedPath);
+  }
+  banner(logStream, `Restoring previous ${label}: ${backupPath} -> ${targetPath}`);
+  fs.renameSync(backupPath, targetPath);
 }
 
 function updateReleasePointers({ logStream, relRoot, packagePath }) {
@@ -850,48 +889,72 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConf
 
   const prefix = getGlobalPrefix();
   banner(logStream, `Installing globally into prefix: ${prefix}`);
+  const rollbackEntries = [];
   {
     const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
     for (const installedRoot of installedCorePackageRoots(npmRoot, info.name)) {
-      moveAsideIfExists(logStream, installedRoot, "global install");
+      const backupPath = moveAsideIfExists(logStream, installedRoot, "global install");
+      if (backupPath) {
+        rollbackEntries.push({
+          targetPath: installedRoot,
+          backupPath,
+          label: "global install",
+        });
+      }
     }
-    moveAsideIfExists(logStream, path.join(prefix, "bin", "openclaw"), "global bin shim");
+    const binPath = path.join(prefix, "bin", "openclaw");
+    const binBackupPath = moveAsideIfExists(logStream, binPath, "global bin shim");
+    if (binBackupPath) {
+      rollbackEntries.push({
+        targetPath: binPath,
+        backupPath: binBackupPath,
+        label: "global bin shim",
+      });
+    }
   }
 
-  await shRetry(logStream, "npm install -g", async () => {
-    await shTee(logStream, "npm", ["install", "-g", "--prefix", prefix, resolvedTgzPath]);
-  });
+  try {
+    await shRetry(logStream, "npm install -g", async () => {
+      await shTee(logStream, "npm", ["install", "-g", "--prefix", prefix, resolvedTgzPath]);
+    });
 
-  banner(logStream, "Running Polytropos bundled plugin deps helper...");
-  {
-    const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
-    const installedRoot = installedPackageRoot(npmRoot, info.name);
-    const helperPath = path.join(
-      installedRoot,
-      "scripts",
-      "polytropos-bundled-plugin-deps-helper.mjs",
-    );
-    if (!fs.existsSync(helperPath)) {
-      fail(`Polytropos helper not found at ${helperPath}`);
+    banner(logStream, "Running Polytropos bundled plugin deps helper...");
+    {
+      const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
+      const installedRoot = installedPackageRoot(npmRoot, info.name);
+      const helperPath = path.join(
+        installedRoot,
+        "scripts",
+        "polytropos-bundled-plugin-deps-helper.mjs",
+      );
+      if (!fs.existsSync(helperPath)) {
+        throw new Error(`Polytropos helper not found at ${helperPath}`);
+      }
+      await shRetry(logStream, "bundled deps helper", async () => {
+        await shTee(logStream, "node", [helperPath]);
+      });
+      banner(logStream, "Bundled plugin deps helper completed.");
+
+      banner(logStream, "Syncing release-updated installed plugins...");
+      const pluginSyncCommand = buildPostInstallPluginSyncCommand({
+        repoRoot: REPO_ROOT,
+        installedRoot,
+        baseRef: effectiveBaseRef ?? undefined,
+        headRef: effectiveHeadRef ?? undefined,
+      });
+      await runPostInstallPluginSync({
+        logStream,
+        pluginSyncCommand,
+        pluginSyncConfig,
+      });
+      banner(logStream, "Release plugin sync completed.");
     }
-    await shRetry(logStream, "bundled deps helper", async () => {
-      await shTee(logStream, "node", [helperPath]);
-    });
-    banner(logStream, "Bundled plugin deps helper completed.");
-
-    banner(logStream, "Syncing release-updated installed plugins...");
-    const pluginSyncCommand = buildPostInstallPluginSyncCommand({
-      repoRoot: REPO_ROOT,
-      installedRoot,
-      baseRef: effectiveBaseRef ?? undefined,
-      headRef: effectiveHeadRef ?? undefined,
-    });
-    await runPostInstallPluginSync({
-      logStream,
-      pluginSyncCommand,
-      pluginSyncConfig,
-    });
-    banner(logStream, "Release plugin sync completed.");
+  } catch (error) {
+    banner(logStream, `Install failed; attempting rollback: ${String(error?.message ?? error)}`);
+    for (const entry of rollbackEntries.reverse()) {
+      restoreMovedAsidePath(logStream, entry);
+    }
+    throw error;
   }
 
   updateReleasePointers({
