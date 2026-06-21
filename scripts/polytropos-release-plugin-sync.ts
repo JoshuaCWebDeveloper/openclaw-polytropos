@@ -61,7 +61,13 @@ function resolveInventoryPath(headRef: string | undefined): string | null {
   if (!headRef || !/^v.+-poly\.\d+$/.test(headRef)) {
     return null;
   }
-  return path.join(resolvePolytroposReleasesRoot(), `${headRef}.package-inventory.json`);
+  const releasesRoot = resolvePolytroposReleasesRoot();
+  const inventoryPath = path.join(releasesRoot, `${headRef}.json`);
+  if (fs.existsSync(inventoryPath)) {
+    return inventoryPath;
+  }
+  const legacyInventoryPath = path.join(releasesRoot, `${headRef}.package-inventory.json`);
+  return fs.existsSync(legacyInventoryPath) ? legacyInventoryPath : inventoryPath;
 }
 
 function loadReleaseInventory(headRef: string | undefined): PackageInventory | null {

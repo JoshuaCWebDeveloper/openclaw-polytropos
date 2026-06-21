@@ -20,6 +20,7 @@ import {
   parseArgs,
   resolvePolytroposReleaseArtifacts,
   resolveReleaseCoreInstallPackagePath,
+  resolveInstallPackageInput,
   stageDownloadedReleaseTarball,
 } from "../../scripts/polytropos-release.mjs";
 
@@ -430,6 +431,43 @@ describe("polytropos release helpers", () => {
     const relRoot = path.join(root, "releases");
     const releaseTag = "v2026.6.1-poly.71";
     const expectedVersion = "2026.6.1-poly.71";
+    const inventoryPath = path.join(relRoot, `${releaseTag}.json`);
+    const localCorePackage = resolveStoredReleasePackagePath(relRoot, {
+      packageName: "openclaw",
+      version: expectedVersion,
+    });
+    fs.mkdirSync(path.dirname(localCorePackage), { recursive: true });
+    fs.writeFileSync(localCorePackage, "cached core package");
+    fs.writeFileSync(
+      inventoryPath,
+      JSON.stringify(
+        {
+          packages: [
+            {
+              packageName: "openclaw",
+              packageType: "core",
+              latestVersion: expectedVersion,
+              integrity: "sha512-test",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    try {
+      expect(resolveReleaseCoreInstallPackagePath({ relRoot, releaseTag })).toBe(localCorePackage);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps legacy package-inventory filenames readable for existing staged releases", () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-release-legacy-test-"));
+    const relRoot = path.join(root, "releases");
+    const releaseTag = "v2026.6.1-poly.72";
+    const expectedVersion = "2026.6.1-poly.72";
     const inventoryPath = path.join(relRoot, `${releaseTag}.package-inventory.json`);
     const localCorePackage = resolveStoredReleasePackagePath(relRoot, {
       packageName: "openclaw",
@@ -457,6 +495,48 @@ describe("polytropos release helpers", () => {
 
     try {
       expect(resolveReleaseCoreInstallPackagePath({ relRoot, releaseTag })).toBe(localCorePackage);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts a package inventory json file as an install input", () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-install-input-test-"));
+    const relRoot = path.join(root, "releases");
+    const releaseTag = "v2026.6.1-poly.73";
+    const expectedVersion = "2026.6.1-poly.73";
+    const inventoryPath = path.join(relRoot, `${releaseTag}.json`);
+    const localCorePackage = resolveStoredReleasePackagePath(relRoot, {
+      packageName: "openclaw",
+      version: expectedVersion,
+    });
+    fs.mkdirSync(path.dirname(localCorePackage), { recursive: true });
+    fs.writeFileSync(localCorePackage, "cached core package");
+    fs.writeFileSync(
+      inventoryPath,
+      JSON.stringify(
+        {
+          releaseTag,
+          packages: [
+            {
+              packageName: "openclaw",
+              packageType: "core",
+              latestVersion: expectedVersion,
+              integrity: "sha512-test",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    try {
+      expect(resolveInstallPackageInput(inventoryPath)).toEqual({
+        packagePath: localCorePackage,
+        releaseTag,
+        inventoryPath,
+      });
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

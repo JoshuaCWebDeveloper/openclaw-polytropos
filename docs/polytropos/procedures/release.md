@@ -13,8 +13,9 @@ Stage and activate versioned Polytropos releases from a valid release branch.
 
 ## Authoritative release store
 
-- `~/polytropos/releases/v<version>-poly.<N>.package-inventory.json` — authoritative metadata for the release, downloaded from the same workflow run as the package artifacts
+- `~/polytropos/releases/v<version>-poly.<N>.json` — authoritative metadata for the release, downloaded from the same workflow run as the package artifacts
 - `~/polytropos/releases/packages/` — authoritative local store for downloaded package archives, including core and tracked plugin packages
+- `~/polytropos/releases/current.tgz` and `~/polytropos/releases/previous.tgz` — compatibility pointers refreshed after a successful install
 
 The inventory decides which package version and artifact locator belong to a release. The `releases/packages/` directory stores the local archive bytes. If the needed archive already exists there, release staging and plugin sync reuse it instead of redownloading or repacking it.
 
@@ -50,7 +51,7 @@ Use `--run-id` only to reuse an existing workflow run for the exact tag; the scr
 - `origin/main` is legacy and should not be used for release work.
 - Package inventories in `~/polytropos/releases/` are authoritative release metadata.
 - Versioned package archives in `~/polytropos/releases/packages/` are immutable local package bytes and should be reused on reruns.
-- Do not treat `current.tgz` or `previous.tgz` as release state. The inventory plus `releases/packages/` is the local source of truth.
+- Do not treat `current.tgz` or `previous.tgz` as authoritative release metadata. The inventory plus `releases/packages/` is the local source of truth.
 
 ## Activation
 
