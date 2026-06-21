@@ -1,12 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
 import * as tar from "tar";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildInstallCommand } from "../../scripts/lib/polytropos-release-install.mjs";
 import {
+  downloadArtifactToFile,
   ensureStoredReleasePackage,
   resolvePackageReleaseStoreDir,
+  resolveReleasePackageRegistryUrl,
   resolveStoredReleasePackagePath,
+  stageRegistryPackageArchive,
 } from "../../scripts/lib/polytropos-release-package-store.mjs";
 import { buildPostInstallPluginSyncCommand } from "../../scripts/lib/polytropos-release-plugin-sync.mjs";
 import { resolveReleaseManagedNpmPluginTargets } from "../../scripts/polytropos-release-plugin-sync.ts";
@@ -34,6 +38,11 @@ function createTestOpenClawTgz(root: string, version: string, marker: string) {
 }
 
 describe("polytropos release helpers", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("builds an install command that delegates back into the release script with a tgz path", () => {
     const repoRoot = "/work/openclaw";
     expect(
@@ -257,6 +266,139 @@ describe("polytropos release helpers", () => {
 
     expect(fs.readFileSync(storedPath, "utf8")).toBe("existing package");
     expect(logs).toEqual([`Reusing stored release package ${storedPath}.`]);
+  });
+
+  it("uses the GitHub Packages registry when inventory points at a GitHub package artifact", async () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-package-registry-test-"));
+    const relRoot = path.join(root, "releases");
+    const captured: Array<{ packageName: string; registryUrl: string | null | undefined }> = [];
+
+    try {
+      await expect(
+        ensureStoredReleasePackage({
+          relRoot,
+          packageName: "openclaw",
+          registryPackageName: "@joshuacwebdeveloper/openclaw-polytropos-core",
+          version: "2026.6.1-poly.73",
+          artifactUrl:
+            "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-core/2026.6.1-poly.73/a01eaca8239d83c905e815ff1a78ce3f245811dd",
+          env: {},
+          stageRegistryPackageArchiveImpl: async (params) => {
+            captured.push({
+              packageName: params.packageName,
+              registryUrl: params.registryUrl,
+            });
+            await fs.promises.mkdir(path.dirname(params.targetPath), { recursive: true });
+            await fs.promises.writeFile(params.targetPath, "packed");
+          },
+        }),
+      ).resolves.toBe(
+        resolveStoredReleasePackagePath(relRoot, {
+          packageName: "openclaw",
+          version: "2026.6.1-poly.73",
+        }),
+      );
+
+      expect(captured).toEqual([
+        {
+          packageName: "@joshuacwebdeveloper/openclaw-polytropos-core",
+          registryUrl: "https://npm.pkg.github.com",
+        },
+      ]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the default npm registry for non-GitHub artifact URLs", () => {
+    expect(
+      resolveReleasePackageRegistryUrl("https://registry.npmjs.org/openclaw/-/openclaw.tgz"),
+    ).toBeNull();
+  });
+
+  it("passes GitHub Packages auth and registry config to npm pack", async () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-package-pack-test-"));
+    const targetPath = path.join(root, "stored.tgz");
+    const calls: Array<{
+      args: string[];
+      nodeAuthToken: string | undefined;
+      userConfig: string | undefined;
+      userConfigContent: string;
+    }> = [];
+
+    try {
+      await stageRegistryPackageArchive({
+        packageName: "@joshuacwebdeveloper/openclaw-polytropos-core",
+        version: "2026.6.1-poly.73",
+        targetPath,
+        registryUrl: "https://npm.pkg.github.com",
+        env: { GITHUB_TOKEN: "github-package-token" },
+        readGhAuthTokenImpl: () => "",
+        execFileSyncImpl: (_cmd, args, options) => {
+          const packDestination = args[args.indexOf("--pack-destination") + 1];
+          fs.writeFileSync(path.join(packDestination, "core.tgz"), "package bytes");
+          const userConfig = options.env?.NPM_CONFIG_USERCONFIG;
+          calls.push({
+            args,
+            nodeAuthToken: options.env?.NODE_AUTH_TOKEN,
+            userConfig,
+            userConfigContent: userConfig ? fs.readFileSync(userConfig, "utf8") : "",
+          });
+          return "core.tgz\n";
+        },
+      });
+
+      expect(fs.readFileSync(targetPath, "utf8")).toBe("package bytes");
+      expect(calls).toHaveLength(1);
+      expect(calls[0].args).toEqual([
+        "pack",
+        "@joshuacwebdeveloper/openclaw-polytropos-core@2026.6.1-poly.73",
+        "--pack-destination",
+        expect.any(String),
+        "--registry",
+        "https://npm.pkg.github.com",
+        "--silent",
+      ]);
+      expect(calls[0].nodeAuthToken).toBe("github-package-token");
+      expect(calls[0].userConfigContent).toBe(
+        "@joshuacwebdeveloper:registry=https://npm.pkg.github.com\n" +
+          "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n" +
+          "always-auth=true\n",
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("authenticates GitHub Packages artifact downloads", async () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-package-fetch-test-"));
+    const targetPath = path.join(root, "artifact.tgz");
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      body: Readable.toWeb(Readable.from(["artifact bytes"])),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await downloadArtifactToFile(
+        "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-core/2026.6.1-poly.73/a01eaca8239d83c905e815ff1a78ce3f245811dd",
+        targetPath,
+        {
+          env: { GITHUB_TOKEN: "github-package-token" },
+          readGhAuthTokenImpl: () => "",
+        },
+      );
+
+      expect(fs.readFileSync(targetPath, "utf8")).toBe("artifact bytes");
+      expect(fetchMock).toHaveBeenCalledWith(expect.any(String), {
+        headers: {
+          authorization: "Bearer github-package-token",
+        },
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("validates stored core packages that use the releases/packages naming scheme", () => {
