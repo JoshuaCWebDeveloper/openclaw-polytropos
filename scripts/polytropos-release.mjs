@@ -3,9 +3,9 @@
  * Polytropos core release script (single purpose)
  *
  * ONE job:
- *   Create or reuse a release-tag workflow run, download its CI-built core tarball
- *   and package inventory, stage them under ~/polytropos/releases/, then install
- *   the staged tarball globally.
+ *   Create or reuse a release-tag workflow run, download its package inventory,
+ *   ensure the inventory's core package is present under ~/polytropos/releases/packages/,
+ *   then install that package globally.
  *
  * Notes:
  * - No local builds.
@@ -21,6 +21,11 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import JSON5 from "json5";
 import { buildInstallCommand } from "./lib/polytropos-release-install.mjs";
+import {
+  ensureStoredReleasePackage,
+  resolvePackageReleaseStoreDir,
+  resolveStoredReleasePackagePath,
+} from "./lib/polytropos-release-package-store.mjs";
 import { buildPostInstallPluginSyncCommand } from "./lib/polytropos-release-plugin-sync.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -109,80 +114,116 @@ function inventoryPathForTag(relRoot, releaseTag) {
   return path.join(relRoot, `${releaseTag}.package-inventory.json`);
 }
 
-function tgzArtifactNameForTag(releaseTag) {
-  return `openclaw-tgz-${releaseTag}`;
+function releasePackagePathForTag(relRoot, releaseTag) {
+  return resolveStoredReleasePackagePath(relRoot, {
+    packageName: "openclaw",
+    version: releaseTag.replace(/^v/, ""),
+  });
 }
 
 function inventoryArtifactNameForTag(releaseTag) {
   return `polytropos-package-inventory-${releaseTag}`;
 }
 
-function pluginReleasesRoot(relRoot) {
-  return path.join(relRoot, "plugins");
-}
-
-function readlinkAbs(p) {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return null;
-  }
-}
-
-function lnSfn(target, linkPath) {
-  fs.mkdirSync(path.dirname(linkPath), { recursive: true });
-  try {
-    fs.rmSync(linkPath, { force: true, recursive: true });
-  } catch {}
-  fs.symlinkSync(target, linkPath);
-}
-
-function assertSymlink(p, what) {
-  try {
-    const st = fs.lstatSync(p);
-    if (!st.isSymbolicLink()) {
-      fail(`${what} must be a symlink at ${p}`);
-    }
-  } catch {
-    // ok if missing
-  }
-}
-
 function tgzInternalVersion(tgzPath) {
-  const raw = execFileSync("tar", ["-xOzf", tgzPath, "package/package.json"], {
-    encoding: "utf8",
-  });
+  let raw;
+  try {
+    raw = execFileSync("tar", ["-xOzf", tgzPath, "package/package.json"], {
+      encoding: "utf8",
+    });
+  } catch (error) {
+    raw = typeof error?.stdout === "string" && error.stdout.trim() ? error.stdout : null;
+    if (!raw) {
+      throw error;
+    }
+  }
   const obj = JSON.parse(raw);
   return { name: obj?.name, version: obj?.version };
 }
 
-function assertReleaseStoreConsistent(relRoot) {
+function isPolytroposCorePackageName(packageName) {
+  return packageName === "openclaw" || packageName.endsWith("/openclaw-polytropos-core");
+}
+
+function installedPackageRoot(npmRoot, packageName) {
+  return path.join(npmRoot, ...String(packageName).split("/"));
+}
+
+function installedCorePackageRoots(npmRoot, packageName) {
+  return [
+    installedPackageRoot(npmRoot, packageName),
+    installedPackageRoot(npmRoot, "openclaw"),
+  ].filter((entry, index, all) => all.indexOf(entry) === index);
+}
+
+function readReleaseInventory(inventoryPath) {
+  const parsed = JSON.parse(fs.readFileSync(inventoryPath, "utf8"));
+  if (!parsed || !Array.isArray(parsed.packages)) {
+    throw new Error(`release inventory must contain a packages array: ${inventoryPath}`);
+  }
+  return parsed;
+}
+
+function resolveCoreInventoryEntry(inventory, inventoryPath) {
+  const entry = inventory.packages.find(
+    (candidate) =>
+      candidate?.packageType === "core" &&
+      candidate?.packageName === "openclaw" &&
+      typeof candidate?.latestVersion === "string" &&
+      candidate.latestVersion.trim(),
+  );
+  if (!entry) {
+    throw new Error(`release inventory is missing core package metadata: ${inventoryPath}`);
+  }
+  return entry;
+}
+
+function stripPolySuffix(version) {
+  return String(version).replace(/(?:\+|-)?poly\.\d+$/u, "");
+}
+
+function assertStoredCorePackageConsistent({ fileName, fullPath, info }) {
+  const currentNameMatch = /^openclaw-(.+)\.tgz$/u.exec(fileName);
+  const legacyNameMatch = currentNameMatch
+    ? null
+    : /^v(.+?)(?:(?:\+|-)?poly\.\d+)?\.tgz$/u.exec(fileName);
+  const expectedVersion = currentNameMatch?.[1] ?? legacyNameMatch?.[1] ?? null;
+  if (!expectedVersion) {
+    return;
+  }
+  if (!isPolytroposCorePackageName(info.name)) {
+    throw new Error(`release store corruption: ${fileName} package name ${info.name}`);
+  }
+  const allowedVersions = new Set([expectedVersion, stripPolySuffix(expectedVersion)]);
+  if (!allowedVersions.has(info.version)) {
+    throw new Error(
+      `release store corruption: ${fullPath} contains version ${info.version} (expected ${expectedVersion})`,
+    );
+  }
+}
+
+export function assertReleaseStoreConsistent(relRoot) {
   if (!fs.existsSync(relRoot)) {
     return;
   }
-  const entries = fs.readdirSync(relRoot, { withFileTypes: true });
+  const packageRoot = resolvePackageReleaseStoreDir(relRoot);
+  if (!fs.existsSync(packageRoot)) {
+    return;
+  }
+  const entries = fs.readdirSync(packageRoot, { withFileTypes: true });
   for (const e of entries) {
     if (!e.isFile()) {
       continue;
     }
-    if (!e.name.startsWith("v") || !e.name.endsWith(".tgz")) {
+    if (!e.name.endsWith(".tgz")) {
       continue;
     }
-    const m = e.name.match(/^v(.+?)(?:(?:\+|-)?poly\.\d+)?\.tgz$/);
-    if (!m) {
-      continue;
-    }
-    const expected = m[1];
-    const full = path.join(relRoot, e.name);
+    const full = path.join(packageRoot, e.name);
     const info = tgzInternalVersion(full);
-    if (info.name !== "openclaw") {
-      fail(`release store corruption: ${e.name} package name ${info.name}`);
+    if (!info.name || !info.version) {
+      throw new Error(`release store corruption: ${full} is missing package name or version`);
     }
-    if (info.version !== expected) {
-      fail(
-        `release store corruption: ${e.name} contains version ${info.version} (expected ${expected})`,
-      );
-    }
+    assertStoredCorePackageConsistent({ fileName: e.name, fullPath: full, info });
   }
 }
 
@@ -306,22 +347,20 @@ export function resolvePolytroposReleaseArtifacts({ requestedTag, artifacts }) {
   }
 
   const requested = candidates.get(requestedTag);
-  if (requested?.tgzArtifact && requested?.inventoryArtifact) {
+  if (requested?.inventoryArtifact) {
     return {
       releaseTag: requestedTag,
-      tgzArtifact: requested.tgzArtifact,
+      ...(requested.tgzArtifact ? { tgzArtifact: requested.tgzArtifact } : {}),
       inventoryArtifact: requested.inventoryArtifact,
     };
   }
 
-  const complete = [...candidates.entries()].filter(
-    ([, candidate]) => candidate.tgzArtifact && candidate.inventoryArtifact,
-  );
+  const complete = [...candidates.entries()].filter(([, candidate]) => candidate.inventoryArtifact);
   if (complete.length === 1) {
     const [releaseTag, candidate] = complete[0];
     return {
       releaseTag,
-      tgzArtifact: candidate.tgzArtifact,
+      ...(candidate.tgzArtifact ? { tgzArtifact: candidate.tgzArtifact } : {}),
       inventoryArtifact: candidate.inventoryArtifact,
     };
   }
@@ -329,11 +368,9 @@ export function resolvePolytroposReleaseArtifacts({ requestedTag, artifacts }) {
   const availableList =
     available.length > 0 ? available.map((name) => `- ${name}`).join("\n") : "- <none>";
   throw new Error(
-    `could not resolve release artifacts for ${requestedTag}. Expected ${tgzArtifactNameForTag(
+    `could not resolve release artifacts for ${requestedTag}. Expected ${inventoryArtifactNameForTag(
       requestedTag,
-    )} and ${inventoryArtifactNameForTag(
-      requestedTag,
-    )}, or exactly one complete openclaw-tgz-/polytropos-package-inventory- tag pair.\nAvailable artifacts:\n${availableList}`,
+    )}, or exactly one complete polytropos-package-inventory- tag artifact.\nAvailable artifacts:\n${availableList}`,
   );
 }
 
@@ -570,10 +607,10 @@ Usage:
 Behavior (single flow):
   - Pushes the release tag to GitHub, unless --run-id reuses an existing tag run
   - Waits for the GitHub Actions workflow run for that tag to complete
-  - Downloads artifacts openclaw-tgz-<tag> and polytropos-package-inventory-<tag>
-  - Stages them into ~/polytropos/releases/<tag>.tgz and <tag>.package-inventory.json
-  - Updates previous.tgz then current.tgz (symlink-safe)
-  - Calls install <tgz> to perform the final package install steps
+  - Downloads artifact polytropos-package-inventory-<tag>
+  - Stages it into ~/polytropos/releases/<tag>.package-inventory.json
+  - Ensures the inventory core package archive exists in ~/polytropos/releases/packages/
+  - Calls install <tgz> with that package archive to perform the final install steps
   - install <tgz> performs the global install, bundled deps helper, and managed plugin sync
   - plugin sync normally uses the live config; --plugin-sync-config sanitized-temp bypasses
     config validation with a temporary copy of the live config minus session.reset, and auto
@@ -616,17 +653,25 @@ export function stageDownloadedReleaseTarball({
   releaseTag,
   expectedVersion,
 }) {
-  const tarPath = path.join(relRoot, `${releaseTag}.tgz`);
+  const tarPath = releasePackagePathForTag(relRoot, releaseTag);
   if (fs.existsSync(tarPath)) {
-    banner(
-      logStream,
-      `Replacing existing staged tarball for rerun: ${tarPath} <- ${downloadedTgzPath}`,
-    );
+    const info = tgzInternalVersion(tarPath);
+    if (!isPolytroposCorePackageName(info.name)) {
+      fail(`release store corruption: ${releaseTag}.tgz package name ${info.name}`);
+    }
+    if (info.version !== expectedVersion) {
+      fail(
+        `release store corruption: ${releaseTag}.tgz contains version ${info.version} (expected ${expectedVersion})`,
+      );
+    }
+    banner(logStream, `Reusing already-staged release tarball: ${tarPath}`);
+    return tarPath;
   }
+  fs.mkdirSync(path.dirname(tarPath), { recursive: true });
   const tempPath = `${tarPath}.tmp-${process.pid}-${randomUUID()}`;
   fs.copyFileSync(downloadedTgzPath, tempPath);
   const info = tgzInternalVersion(tempPath);
-  if (info.name !== "openclaw") {
+  if (!isPolytroposCorePackageName(info.name)) {
     fs.rmSync(tempPath, { force: true });
     fail(`unexpected package name in staged tgz: ${info.name}`);
   }
@@ -636,6 +681,22 @@ export function stageDownloadedReleaseTarball({
   }
   fs.renameSync(tempPath, tarPath);
   return tarPath;
+}
+
+export function resolveReleaseCoreInstallPackagePath({ relRoot, releaseTag }) {
+  const inventoryPath = inventoryPathForTag(relRoot, releaseTag);
+  if (!fs.existsSync(inventoryPath)) {
+    throw new Error(`release inventory not found: ${inventoryPath}`);
+  }
+  const coreEntry = resolveCoreInventoryEntry(readReleaseInventory(inventoryPath), inventoryPath);
+  const packagePath = resolveStoredReleasePackagePath(relRoot, {
+    packageName: coreEntry.packageName,
+    version: coreEntry.latestVersion,
+  });
+  if (!fs.existsSync(packagePath)) {
+    throw new Error(`required core package is not in the release package store: ${packagePath}`);
+  }
+  return packagePath;
 }
 
 async function runPostInstallPluginSync({ logStream, pluginSyncCommand, pluginSyncConfig }) {
@@ -687,7 +748,7 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConf
     fail(`install tgz does not exist: ${resolvedTgzPath}`);
   }
   const info = tgzInternalVersion(resolvedTgzPath);
-  if (info.name !== "openclaw") {
+  if (!isPolytroposCorePackageName(info.name)) {
     fail(`unexpected package name in install tgz: ${info.name}`);
   }
   banner(logStream, `Installing tgz ${resolvedTgzPath} (version ${info.version})`);
@@ -696,11 +757,12 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConf
   banner(logStream, `Installing globally into prefix: ${prefix}`);
   {
     const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
-    const installedRoot = path.join(npmRoot, "openclaw");
-    if (fs.existsSync(installedRoot)) {
-      const bak = `${installedRoot}.bak-${timestampForFilename()}`;
-      banner(logStream, `Moving aside existing global install: ${installedRoot} -> ${bak}`);
-      fs.renameSync(installedRoot, bak);
+    for (const installedRoot of installedCorePackageRoots(npmRoot, info.name)) {
+      if (fs.existsSync(installedRoot)) {
+        const bak = `${installedRoot}.bak-${timestampForFilename()}`;
+        banner(logStream, `Moving aside existing global install: ${installedRoot} -> ${bak}`);
+        fs.renameSync(installedRoot, bak);
+      }
     }
   }
 
@@ -711,7 +773,7 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConf
   banner(logStream, "Running Polytropos bundled plugin deps helper...");
   {
     const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
-    const installedRoot = path.join(npmRoot, "openclaw");
+    const installedRoot = installedPackageRoot(npmRoot, info.name);
     const helperPath = path.join(
       installedRoot,
       "scripts",
@@ -805,7 +867,7 @@ async function main(argv = process.argv) {
 
       const relRoot = releasesRoot();
       fs.mkdirSync(relRoot, { recursive: true });
-      fs.mkdirSync(pluginReleasesRoot(relRoot), { recursive: true });
+      fs.mkdirSync(resolvePackageReleaseStoreDir(relRoot), { recursive: true });
       assertReleaseStoreConsistent(relRoot);
 
       let runId = requestedRunId;
@@ -861,109 +923,67 @@ async function main(argv = process.argv) {
         }
       }
 
-      const artifact = resolvedArtifacts.tgzArtifact;
       const inventoryArtifact = resolvedArtifacts.inventoryArtifact;
-      const tmpDir = fs.mkdtempSync(path.join(resolveHome(), ".openclaw", "tmp-release-"));
-
-      banner(logStream, `Downloading artifact ${artifact} to ${tmpDir}`);
-      await shTee(logStream, "gh", [
-        "run",
-        "download",
-        runId,
-        "--repo",
-        ghRepo,
-        "-n",
-        artifact,
-        "--dir",
-        tmpDir,
-      ]);
-
-      banner(logStream, `Downloading artifact ${inventoryArtifact} to ${tmpDir}`);
-      await shTee(logStream, "gh", [
-        "run",
-        "download",
-        runId,
-        "--repo",
-        ghRepo,
-        "-n",
-        inventoryArtifact,
-        "--dir",
-        tmpDir,
-      ]);
-
-      function findTgz(dir) {
-        const matches = [];
-        const stack = [dir];
-        while (stack.length) {
-          const d = stack.pop();
-          for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
-            const pth = path.join(d, ent.name);
-            if (ent.isDirectory()) {
-              stack.push(pth);
-            } else if (ent.isFile() && ent.name.endsWith(".tgz")) {
-              matches.push(pth);
-            }
-          }
-        }
-        return matches;
-      }
-
-      const tgzs = findTgz(tmpDir);
-      if (tgzs.length !== 1) {
-        fail(`expected exactly one .tgz in artifact, found ${tgzs.length}: ${tgzs.join(", ")}`);
-      }
-      const tgzPath = tgzs[0];
-      const expectedVersion = releaseTag.replace(/^v/, "").replace(/-poly\.\d+$/, "");
-
-      {
-        const info = tgzInternalVersion(tgzPath);
-        if (info.name !== "openclaw") {
-          fail(`unexpected package name in tgz: ${info.name}`);
-        }
-        if (info.version !== expectedVersion) {
-          fail(`tgz version ${info.version} != expected ${expectedVersion} (from ${releaseTag})`);
-        }
-      }
-
       const inventoryPath = inventoryPathForTag(relRoot, releaseTag);
-      const tarPath = stageDownloadedReleaseTarball({
-        logStream,
-        downloadedTgzPath: tgzPath,
-        relRoot,
-        releaseTag,
-        expectedVersion,
-      });
+      if (!fs.existsSync(inventoryPath)) {
+        const tmpDir = fs.mkdtempSync(path.join(resolveHome(), ".openclaw", "tmp-release-"));
 
-      const foundInventory = path.join(tmpDir, "polytropos-package-inventory.json");
-      if (!fs.existsSync(foundInventory)) {
-        fail(`expected downloaded inventory artifact at ${foundInventory}`);
-      }
-      fs.copyFileSync(foundInventory, inventoryPath);
+        banner(logStream, `Downloading artifact ${inventoryArtifact} to ${tmpDir}`);
+        await shTee(logStream, "gh", [
+          "run",
+          "download",
+          runId,
+          "--repo",
+          ghRepo,
+          "-n",
+          inventoryArtifact,
+          "--dir",
+          tmpDir,
+        ]);
 
-      banner(logStream, `Staged tarball: ${tarPath}`);
-      banner(logStream, `Staged package inventory: ${inventoryPath}`);
-      const currentTgz = path.join(relRoot, "current.tgz");
-      assertSymlink(currentTgz, "current.tgz");
-      const previousTgz = path.join(relRoot, "previous.tgz");
-      assertSymlink(previousTgz, "previous.tgz");
-      const currentTarget = readlinkAbs(currentTgz);
-      if (currentTarget) {
-        banner(logStream, `Setting previous.tgz -> ${currentTarget}`);
-        lnSfn(currentTarget, previousTgz);
+        const foundInventory = path.join(tmpDir, "polytropos-package-inventory.json");
+        if (!fs.existsSync(foundInventory)) {
+          fail(`expected downloaded inventory artifact at ${foundInventory}`);
+        }
+        fs.copyFileSync(foundInventory, inventoryPath);
       } else {
         banner(
           logStream,
-          "No existing current.tgz symlink; setting previous.tgz to this tarball as bootstrap",
+          `Reusing staged package inventory from local release store: ${inventoryPath}`,
         );
-        lnSfn(tarPath, previousTgz);
       }
 
-      banner(logStream, `Setting current.tgz -> ${tarPath}`);
-      lnSfn(tarPath, currentTgz);
-      banner(logStream, `Delegating install for staged release artifact ${currentTgz}`);
+      const coreEntry = resolveCoreInventoryEntry(
+        readReleaseInventory(inventoryPath),
+        inventoryPath,
+      );
+      const tarPath = await ensureStoredReleasePackage({
+        relRoot,
+        packageName: coreEntry.packageName,
+        registryPackageName: coreEntry.publishedPackageName,
+        version: coreEntry.latestVersion,
+        artifactUrl: coreEntry.artifactUrl,
+        logger: {
+          info: (message) => banner(logStream, message),
+          warn: (message) => banner(logStream, message),
+        },
+      });
+      const info = tgzInternalVersion(tarPath);
+      if (!isPolytroposCorePackageName(info.name)) {
+        fail(`unexpected package name in staged core package: ${info.name}`);
+      }
+      if (info.version !== coreEntry.latestVersion) {
+        fail(
+          `staged core package version ${info.version} != inventory version ${coreEntry.latestVersion}`,
+        );
+      }
+
+      banner(logStream, `Staged core package: ${tarPath}`);
+      banner(logStream, `Staged package inventory: ${inventoryPath}`);
+      banner(logStream, `Delegating install for inventory core package ${tarPath}`);
       const installCommand = buildInstallCommand({
         repoRoot: REPO_ROOT,
-        tgzPath: currentTgz,
+        tgzPath: tarPath,
         baseRef: previousReleaseTag ?? undefined,
         headRef: releaseTag,
         logPath,

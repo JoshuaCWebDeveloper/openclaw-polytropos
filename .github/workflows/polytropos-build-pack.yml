@@ -157,16 +157,6 @@ jobs:
           )"
           echo "release_package_version=${release_package_version}" >> "$GITHUB_OUTPUT"
           echo "RELEASE_PACKAGE_VERSION=${release_package_version}" >> "$GITHUB_ENV"
-      - name: Upload package artifact
-        if: github.ref_type == 'tag'
-        id: upload_core_artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: openclaw-tgz-${{ env.RELEASE_TAG }}
-          path: ${{ steps.pack.outputs.tgz }}
-          if-no-files-found: error
-          retention-days: 14
-
       - name: Prepare core GitHub Packages tarball
         if: github.ref_type == 'tag'
         id: prepare_core_github_package
