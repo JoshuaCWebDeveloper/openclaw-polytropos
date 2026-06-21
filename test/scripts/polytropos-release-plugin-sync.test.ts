@@ -13,7 +13,10 @@ import {
   stageRegistryPackageArchive,
 } from "../../scripts/lib/polytropos-release-package-store.mjs";
 import { buildPostInstallPluginSyncCommand } from "../../scripts/lib/polytropos-release-plugin-sync.mjs";
-import { resolveReleaseManagedNpmPluginTargets } from "../../scripts/polytropos-release-plugin-sync.ts";
+import {
+  repairOpenClawPeerLinksForReleaseInstall,
+  resolveReleaseManagedNpmPluginTargets,
+} from "../../scripts/polytropos-release-plugin-sync.ts";
 import {
   assertReleaseStoreConsistent,
   createSanitizedTemporaryConfigPath,
@@ -765,5 +768,67 @@ describe("polytropos release helpers", () => {
         integrity: "sha512-test",
       },
     ]);
+  });
+
+  it("repairs managed npm openclaw peer links even when no plugin version changed", async () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-peer-link-test-"));
+    const hostRoot = path.join(root, "host-openclaw");
+    const installPath = path.join(root, "projects", "demo", "node_modules", "@openclaw", "codex");
+    fs.mkdirSync(path.join(hostRoot, "dist", "plugin-sdk"), { recursive: true });
+    fs.writeFileSync(
+      path.join(hostRoot, "package.json"),
+      JSON.stringify({ name: "openclaw", version: "2026.6.1-poly.73" }, null, 2),
+    );
+    fs.writeFileSync(
+      path.join(hostRoot, "dist", "plugin-sdk", "number-runtime.js"),
+      "export const value = 1;\n",
+    );
+    fs.mkdirSync(installPath, { recursive: true });
+    fs.writeFileSync(
+      path.join(installPath, "package.json"),
+      JSON.stringify(
+        {
+          name: "@openclaw/codex",
+          version: "2026.6.1",
+          peerDependencies: { openclaw: ">=2026.6.1" },
+        },
+        null,
+        2,
+      ),
+    );
+    const staleHostRoot = path.join(root, "source-openclaw");
+    fs.mkdirSync(path.join(staleHostRoot, "dist", "plugin-sdk"), { recursive: true });
+    fs.writeFileSync(
+      path.join(staleHostRoot, "package.json"),
+      JSON.stringify({ name: "openclaw", version: "2026.6.1" }, null, 2),
+    );
+    fs.mkdirSync(path.join(installPath, "node_modules"), { recursive: true });
+    fs.symlinkSync(staleHostRoot, path.join(installPath, "node_modules", "openclaw"), "junction");
+    const logs: string[] = [];
+
+    try {
+      const summary = await repairOpenClawPeerLinksForReleaseInstall({
+        hostRoot,
+        installRecords: {
+          codex: {
+            source: "npm",
+            spec: "@openclaw/codex@2026.6.1",
+            installPath,
+            version: "2026.6.1",
+          },
+        },
+        logger: {
+          info: (message) => logs.push(message),
+          warn: (message) => logs.push(message),
+        },
+      });
+
+      expect(summary).toEqual({ checked: 1, attempted: 1, repaired: 1, skipped: 0 });
+      const linkedPackage = path.join(installPath, "node_modules", "openclaw", "package.json");
+      expect(fs.realpathSync(path.dirname(linkedPackage))).toBe(fs.realpathSync(hostRoot));
+      expect(logs).toContain(`Linked peerDependency "openclaw" -> ${hostRoot}`);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

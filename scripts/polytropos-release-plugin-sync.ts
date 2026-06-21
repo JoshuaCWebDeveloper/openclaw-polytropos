@@ -9,6 +9,10 @@ import { readConfigFileSnapshot, getRuntimeConfig } from "../src/config/config.j
 import type { PluginInstallRecord } from "../src/config/types.plugins.js";
 import { parseRegistryNpmSpec } from "../src/infra/npm-registry-spec.js";
 import { readPackageVersion } from "../src/infra/package-json.js";
+import {
+  installedPackageNeedsOpenClawPeerLinkRepair,
+  readInstalledPackagePeerDependencies,
+} from "../src/infra/package-update-utils.js";
 import { installPluginFromArchive, resolvePluginInstallDir } from "../src/plugins/install.js";
 import {
   loadInstalledPluginIndexInstallRecords,
@@ -16,6 +20,7 @@ import {
   withoutPluginInstallRecords,
 } from "../src/plugins/installed-plugin-index-records.js";
 import { buildNpmResolutionInstallFields, recordPluginInstall } from "../src/plugins/installs.js";
+import { resolveUserPath } from "../src/utils.js";
 import {
   collectChangedExtensionIdsFromGitRange,
   collectPublishablePluginPackages,
@@ -37,6 +42,28 @@ type PackageInventoryEntry = {
 type PackageInventory = {
   packages?: PackageInventoryEntry[];
 };
+
+type PeerLinkRepairSummary = {
+  checked: number;
+  attempted: number;
+  repaired: number;
+  skipped: number;
+};
+
+function openClawPeerLinkNeedsReleaseRepair(params: {
+  hostRoot: string;
+  installPath: string;
+}): boolean {
+  if (installedPackageNeedsOpenClawPeerLinkRepair(params.installPath)) {
+    return true;
+  }
+  const linkPath = path.join(params.installPath, "node_modules", "openclaw");
+  try {
+    return fs.realpathSync(linkPath) !== fs.realpathSync(params.hostRoot);
+  } catch {
+    return true;
+  }
+}
 
 export type ReleasePluginSyncTarget = {
   pluginId: string;
@@ -287,6 +314,89 @@ async function installPluginTargetsFromInventory(params: {
   return { config: next, changed, outcomes };
 }
 
+export async function repairOpenClawPeerLinksForReleaseInstall(params: {
+  hostRoot: string;
+  installRecords: Record<string, PluginInstallRecord>;
+  logger: {
+    info: (message: string) => void;
+    warn: (message: string) => void;
+  };
+}): Promise<PeerLinkRepairSummary> {
+  let checked = 0;
+  let attempted = 0;
+  let repaired = 0;
+  let skipped = 0;
+
+  for (const [pluginId, record] of Object.entries(params.installRecords)) {
+    if (record?.source !== "npm") {
+      continue;
+    }
+    let installPath: string;
+    try {
+      installPath = resolveUserPath(
+        record.installPath?.trim() || resolvePluginInstallDir(pluginId),
+      );
+    } catch (error) {
+      params.logger.warn(
+        `Could not repair openclaw peer link for ${pluginId}: invalid install path (${String(
+          error,
+        )}).`,
+      );
+      skipped += 1;
+      continue;
+    }
+
+    if (!openClawPeerLinkNeedsReleaseRepair({ hostRoot: params.hostRoot, installPath })) {
+      checked += 1;
+      continue;
+    }
+
+    const peerDependencies = readInstalledPackagePeerDependencies(installPath);
+    if (!Object.hasOwn(peerDependencies, "openclaw")) {
+      checked += 1;
+      continue;
+    }
+
+    checked += 1;
+    attempted += 1;
+    const nodeModulesDir = path.join(installPath, "node_modules");
+    const linkPath = path.join(nodeModulesDir, "openclaw");
+    try {
+      fs.mkdirSync(nodeModulesDir, { recursive: true });
+      const existing = fs.lstatSync(linkPath, { throwIfNoEntry: false });
+      if (existing) {
+        if (!existing.isSymbolicLink()) {
+          const packageJsonPath = path.join(linkPath, "package.json");
+          const existingPackageName = fs.existsSync(packageJsonPath)
+            ? (JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as { name?: unknown }).name
+            : undefined;
+          if (existingPackageName !== "openclaw") {
+            params.logger.warn(
+              `Could not repair openclaw peer link for ${pluginId} at ${installPath}: ${linkPath} already exists and is not an openclaw package.`,
+            );
+            skipped += 1;
+            continue;
+          }
+        }
+        fs.rmSync(linkPath, { recursive: true, force: true });
+      }
+      fs.symlinkSync(params.hostRoot, linkPath, "junction");
+      params.logger.info(`Linked peerDependency "openclaw" -> ${params.hostRoot}`);
+    } catch (error) {
+      params.logger.warn(
+        `Could not repair openclaw peer link for ${pluginId} at ${installPath}: ${String(error)}.`,
+      );
+      skipped += 1;
+      continue;
+    }
+    repaired += openClawPeerLinkNeedsReleaseRepair({ hostRoot: params.hostRoot, installPath })
+      ? 0
+      : 1;
+  }
+
+  return { checked, attempted, repaired, skipped };
+}
+
 async function main() {
   const installedRoot = process.argv[2];
   const baseRef = process.argv[3];
@@ -317,19 +427,6 @@ async function main() {
   });
   const loggerLines: LoggerLine[] = [];
 
-  if (targets.length === 0) {
-    process.stdout.write(
-      JSON.stringify({
-        ok: true,
-        gatewayVersion,
-        updated: [],
-        changed: false,
-        message: "No managed npm plugin installs needed release-version sync.",
-      }) + "\n",
-    );
-    return;
-  }
-
   const logger = {
     info: (message: string) => loggerLines.push({ level: "info", message }),
     warn: (message: string) => loggerLines.push({ level: "warn", message }),
@@ -337,26 +434,32 @@ async function main() {
   };
 
   const result =
-    inventory !== null
-      ? await installPluginTargetsFromInventory({
-          configWithRecords: withPluginInstallRecords(cfg, installRecords),
-          installRecords,
-          targets,
-          logger,
-        })
-      : await (async () => {
-          const { updateNpmInstalledPlugins } = await import("../src/plugins/update.js");
-          return await updateNpmInstalledPlugins({
-            config: withPluginInstallRecords(cfg, installRecords),
-            pluginIds: targets.map((entry) => entry.pluginId),
-            forceReinstallPluginIds: new Set(targets.map((entry) => entry.pluginId)),
-            specOverrides: Object.fromEntries(
-              targets.map((entry) => [entry.pluginId, entry.specOverride] as const),
-            ),
+    targets.length === 0
+      ? {
+          config: withPluginInstallRecords(cfg, installRecords),
+          changed: false,
+          outcomes: [],
+        }
+      : inventory !== null
+        ? await installPluginTargetsFromInventory({
+            configWithRecords: withPluginInstallRecords(cfg, installRecords),
+            installRecords,
+            targets,
             logger,
-            onIntegrityDrift: async () => false,
-          });
-        })();
+          })
+        : await (async () => {
+            const { updateNpmInstalledPlugins } = await import("../src/plugins/update.js");
+            return await updateNpmInstalledPlugins({
+              config: withPluginInstallRecords(cfg, installRecords),
+              pluginIds: targets.map((entry) => entry.pluginId),
+              forceReinstallPluginIds: new Set(targets.map((entry) => entry.pluginId)),
+              specOverrides: Object.fromEntries(
+                targets.map((entry) => [entry.pluginId, entry.specOverride] as const),
+              ),
+              logger,
+              onIntegrityDrift: async () => false,
+            });
+          })();
 
   if (result.changed) {
     const nextInstallRecords = result.config.plugins?.installs ?? {};
@@ -377,6 +480,12 @@ async function main() {
       logger,
     });
   }
+  const nextInstallRecords = result.config.plugins?.installs ?? installRecords;
+  const peerLinkRepair = await repairOpenClawPeerLinksForReleaseInstall({
+    hostRoot: installedRoot,
+    installRecords: nextInstallRecords,
+    logger,
+  });
 
   const errored = result.outcomes.some((outcome) => outcome.status === "error");
   process.stdout.write(
@@ -387,7 +496,11 @@ async function main() {
       targets,
       changed: result.changed,
       outcomes: result.outcomes,
+      peerLinkRepair,
       logs: loggerLines,
+      ...(targets.length === 0
+        ? { message: "No managed npm plugin installs needed release-version sync." }
+        : {}),
     }) + "\n",
   );
 
