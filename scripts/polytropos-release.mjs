@@ -1159,6 +1159,7 @@ async function main(argv = process.argv) {
     runId: requestedRunId,
     rerunRun,
     installTgz,
+    inventoryPath,
     baseRef,
     headRef,
     pluginSyncConfig,
@@ -1274,8 +1275,8 @@ async function main(argv = process.argv) {
       }
 
       const inventoryArtifact = resolvedArtifacts.inventoryArtifact;
-      const inventoryPath = inventoryPathForTag(relRoot, releaseTag);
-      if (!fs.existsSync(inventoryPath)) {
+      const stagedInventoryPath = inventoryPathForTag(relRoot, releaseTag);
+      if (!fs.existsSync(stagedInventoryPath)) {
         const tmpDir = fs.mkdtempSync(path.join(resolveHome(), ".openclaw", "tmp-release-"));
 
         banner(logStream, `Downloading artifact ${inventoryArtifact} to ${tmpDir}`);
@@ -1295,17 +1296,17 @@ async function main(argv = process.argv) {
         if (!fs.existsSync(foundInventory)) {
           fail(`expected downloaded inventory artifact at ${foundInventory}`);
         }
-        fs.copyFileSync(foundInventory, inventoryPath);
+        fs.copyFileSync(foundInventory, stagedInventoryPath);
       } else {
         banner(
           logStream,
-          `Reusing staged package inventory from local release store: ${inventoryPath}`,
+          `Reusing staged package inventory from local release store: ${stagedInventoryPath}`,
         );
       }
 
       const coreEntry = resolveCoreInventoryEntry(
-        readReleaseInventory(inventoryPath),
-        inventoryPath,
+        readReleaseInventory(stagedInventoryPath),
+        stagedInventoryPath,
       );
       const tarPath = await ensureStoredReleasePackage({
         relRoot,
@@ -1329,12 +1330,12 @@ async function main(argv = process.argv) {
       }
 
       banner(logStream, `Staged core package: ${tarPath}`);
-      banner(logStream, `Staged package inventory: ${inventoryPath}`);
+      banner(logStream, `Staged package inventory: ${stagedInventoryPath}`);
       banner(logStream, `Delegating install for inventory core package ${tarPath}`);
       const installCommand = buildInstallCommand({
         repoRoot: REPO_ROOT,
         tgzPath: tarPath,
-        inventoryPath,
+        inventoryPath: stagedInventoryPath,
         baseRef: previousReleaseTag ?? undefined,
         headRef: releaseTag,
         logPath,
