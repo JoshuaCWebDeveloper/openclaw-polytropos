@@ -20,6 +20,7 @@ import {
 import {
   assertReleaseStoreConsistent,
   createSanitizedTemporaryConfigPath,
+  ensureLegacyOpenClawPackageAlias,
   parseArgs,
   prepareInstallPackageInput,
   resolvePolytroposReleaseArtifacts,
@@ -744,6 +745,33 @@ describe("polytropos release helpers", () => {
       ],
       cwd: repoRoot,
     });
+  });
+
+  it("creates a legacy openclaw package alias after installing the scoped core package", () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-legacy-alias-test-"));
+    const npmRoot = path.join(root, "lib", "node_modules");
+    const installedRoot = path.join(npmRoot, "@joshuacwebdeveloper", "openclaw-polytropos-core");
+    fs.mkdirSync(installedRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(installedRoot, "package.json"),
+      JSON.stringify({
+        name: "@joshuacwebdeveloper/openclaw-polytropos-core",
+        version: "2026.6.1-poly.73",
+      }),
+    );
+
+    try {
+      const aliasPath = ensureLegacyOpenClawPackageAlias({
+        npmRoot,
+        packageName: "@joshuacwebdeveloper/openclaw-polytropos-core",
+        logStream: process.stdout,
+      });
+      expect(aliasPath).toBe(path.join(npmRoot, "openclaw"));
+      expect(fs.lstatSync(aliasPath).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(aliasPath)).toBe(fs.realpathSync(installedRoot));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("selects managed publishable npm installs when no git range is provided", () => {
