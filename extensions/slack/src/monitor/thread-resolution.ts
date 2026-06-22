@@ -1,4 +1,3 @@
-import type { WebClient as SlackWebClient } from "@slack/web-api";
 import { pruneMapToMaxSize } from "openclaw/plugin-sdk/collection-runtime";
 import {
   asDateTimestampMs,
@@ -6,6 +5,7 @@ import {
   resolveExpiresAtMsFromDurationMs,
 } from "openclaw/plugin-sdk/number-runtime";
 import { logVerbose, shouldLogVerbose } from "openclaw/plugin-sdk/runtime-env";
+import type { SlackApiClient } from "../client.js";
 import { formatSlackError } from "../errors.js";
 import type { SlackMessageEvent } from "../types.js";
 
@@ -28,7 +28,7 @@ const markAmbiguousThreadReply = (message: SlackMessageEvent): SlackMessageEvent
 });
 
 async function resolveThreadTsFromHistory(params: {
-  client: SlackWebClient;
+  client: SlackApiClient;
   channelId: string;
   messageTs: string;
 }) {
@@ -54,7 +54,7 @@ async function resolveThreadTsFromHistory(params: {
 }
 
 export function createSlackThreadTsResolver(params: {
-  client: SlackWebClient;
+  client: SlackApiClient;
   cacheTtlMs?: number;
   maxSize?: number;
 }) {

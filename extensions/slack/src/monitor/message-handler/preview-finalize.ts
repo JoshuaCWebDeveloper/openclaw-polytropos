@@ -1,6 +1,7 @@
-import type { Block, KnownBlock, WebClient } from "@slack/web-api";
+import type { Block, KnownBlock } from "@slack/web-api";
 import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { editSlackMessage } from "../../actions.js";
+import type { SlackApiClient } from "../../client.js";
 import { buildSlackEditTextPayload } from "../../edit-text.js";
 import { normalizeSlackOutboundText } from "../../format.js";
 
@@ -28,7 +29,7 @@ function blocksMatch(expected?: (Block | KnownBlock)[], actual?: unknown[]): boo
 }
 
 async function readSlackMessageAfterEditError(params: {
-  client: WebClient;
+  client: SlackApiClient;
   token: string;
   channelId: string;
   messageId: string;
@@ -44,7 +45,7 @@ async function readSlackMessageAfterEditError(params: {
       limit: 100,
     });
     const reply = (replyResult.messages ?? []).find(
-      (message) => (message as SlackReadbackMessage | undefined)?.ts === params.messageId,
+      (message: unknown) => (message as SlackReadbackMessage | undefined)?.ts === params.messageId,
     ) as SlackReadbackMessage | undefined;
     return reply ?? null;
   }
@@ -65,7 +66,7 @@ async function readSlackMessageAfterEditError(params: {
 }
 
 async function didSlackPreviewEditApplyAfterError(params: {
-  client: WebClient;
+  client: SlackApiClient;
   token: string;
   channelId: string;
   messageId: string;
@@ -89,7 +90,7 @@ async function didSlackPreviewEditApplyAfterError(params: {
 }
 
 export async function finalizeSlackPreviewEdit(params: {
-  client: WebClient;
+  client: SlackApiClient;
   token: string;
   accountId?: string;
   channelId: string;

@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import type { WebClient as SlackWebClient } from "@slack/web-api";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import { normalizeHostname } from "openclaw/plugin-sdk/host-runtime";
 import { resolveRequestUrl } from "openclaw/plugin-sdk/request-url";
@@ -7,6 +6,7 @@ import {
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalLowercaseString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
+import type { SlackApiClient } from "../client.js";
 import { formatSlackFileReference } from "../file-reference.js";
 import type { SlackAttachment, SlackFile } from "../types.js";
 export { MAX_SLACK_MEDIA_FILES, type SlackMediaResult } from "./media-types.js";
@@ -279,7 +279,7 @@ const MAX_SLACK_FORWARDED_ATTACHMENTS = 8;
 
 async function fetchFreshSlackFileUrl(params: {
   file: SlackFile;
-  client?: SlackWebClient;
+  client?: Pick<SlackApiClient, "files">;
 }): Promise<string | null> {
   if (!params.file.id || !params.client) {
     return null;
@@ -405,7 +405,7 @@ async function mapLimit<T, R>(
  */
 export async function resolveSlackMedia(params: {
   files?: SlackFile[];
-  client?: SlackWebClient;
+  client?: Pick<SlackApiClient, "files">;
   token: string;
   maxBytes: number;
   readIdleTimeoutMs?: number;
@@ -461,7 +461,7 @@ export async function resolveSlackMedia(params: {
 /** Extracts text and media from forwarded-message attachments. Returns null when empty. */
 export async function resolveSlackAttachmentContent(params: {
   attachments?: SlackAttachment[];
-  client?: SlackWebClient;
+  client?: Pick<SlackApiClient, "files">;
   token: string;
   maxBytes: number;
   readIdleTimeoutMs?: number;

@@ -265,6 +265,15 @@ export function resolveBoundaryRootShimsTimeoutMs(env = process.env) {
   return Number.isInteger(parsed) && parsed > 0 && String(parsed) === raw.trim() ? parsed : 300_000;
 }
 
+function shouldSkipSlackBoundaryDts(env = process.env) {
+  const raw = env.OPENCLAW_SKIP_SLACK_BOUNDARY_DTS;
+  if (raw === undefined) {
+    return false;
+  }
+  const normalized = raw.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
 function collectNewestMtime(paths, params = {}) {
   const rootDir = params.rootDir ?? repoRoot;
   const includeFile = params.includeFile ?? (() => true);
@@ -543,6 +552,7 @@ export async function runNodeSteps(steps, env = process.env) {
 async function main(argv = process.argv.slice(2)) {
   try {
     const mode = parseMode(argv);
+    const skipSlackBoundaryDts = shouldSkipSlackBoundaryDts();
     const rootDtsFresh =
       isArtifactSetFresh({
         inputPaths: ROOT_DTS_INPUTS,
@@ -685,7 +695,9 @@ async function main(argv = process.argv.slice(2)) {
       } else {
         process.stdout.write("[discord boundary dts] fresh; skipping\n");
       }
-      if (!slackDtsFresh) {
+      if (skipSlackBoundaryDts) {
+        process.stdout.write("[slack boundary dts] skipped by OPENCLAW_SKIP_SLACK_BOUNDARY_DTS\n");
+      } else if (!slackDtsFresh) {
         removeIncrementalStateForMissingOutput({
           outputPaths: SLACK_DTS_REQUIRED_OUTPUTS,
           tsBuildInfoPath: "dist/plugin-sdk/extensions/slack/.tsbuildinfo",

@@ -27,6 +27,7 @@ import {
   resolveReleaseCoreInstallPackagePath,
   resolveInstallPackageInput,
   stageDownloadedReleaseTarball,
+  updateReleasePointers,
 } from "../../scripts/polytropos-release.mjs";
 
 function createTestPackageTgz(root: string, packageName: string, version: string, marker: string) {
@@ -501,6 +502,73 @@ describe("polytropos release helpers", () => {
       expect(() => assertReleaseStoreConsistent(relRoot)).toThrow(
         /release store corruption: .*contains version 2026\.6\.1 \(expected 2026\.6\.1-poly\.71\)/u,
       );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("writes current and previous compatibility pointers as symlinks into releases/packages", () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-pointer-bootstrap-test-"));
+    const relRoot = path.join(root, "releases");
+    const installedPackage = createTestOpenClawTgz(root, "2026.6.1-poly.73", "current");
+
+    try {
+      updateReleasePointers({
+        logStream: process.stdout,
+        relRoot,
+        packagePath: installedPackage,
+      });
+
+      const storedPath = resolveStoredReleasePackagePath(relRoot, {
+        packageName: "openclaw",
+        version: "2026.6.1-poly.73",
+      });
+      const currentPath = path.join(relRoot, "current.tgz");
+      const previousPath = path.join(relRoot, "previous.tgz");
+
+      expect(fs.lstatSync(currentPath).isSymbolicLink()).toBe(true);
+      expect(fs.lstatSync(previousPath).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(currentPath)).toBe(storedPath);
+      expect(fs.realpathSync(previousPath)).toBe(storedPath);
+      expect(fs.readFileSync(storedPath)).toEqual(fs.readFileSync(installedPackage));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("migrates legacy copied current.tgz into a stored previous pointer target", () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-pointer-migrate-test-"));
+    const relRoot = path.join(root, "releases");
+    const packageRoot = resolvePackageReleaseStoreDir(relRoot);
+    fs.mkdirSync(packageRoot, { recursive: true });
+    const oldPackage = createTestOpenClawTgz(root, "2026.6.1-poly.71", "old");
+    const newPackage = createTestOpenClawTgz(root, "2026.6.1-poly.73", "new");
+    const oldStoredPath = resolveStoredReleasePackagePath(relRoot, {
+      packageName: "openclaw",
+      version: "2026.6.1-poly.71",
+    });
+    const newStoredPath = resolveStoredReleasePackagePath(relRoot, {
+      packageName: "openclaw",
+      version: "2026.6.1-poly.73",
+    });
+    fs.copyFileSync(oldPackage, oldStoredPath);
+    fs.copyFileSync(oldPackage, path.join(relRoot, "current.tgz"));
+
+    try {
+      updateReleasePointers({
+        logStream: process.stdout,
+        relRoot,
+        packagePath: newPackage,
+      });
+
+      const currentPath = path.join(relRoot, "current.tgz");
+      const previousPath = path.join(relRoot, "previous.tgz");
+
+      expect(fs.lstatSync(currentPath).isSymbolicLink()).toBe(true);
+      expect(fs.lstatSync(previousPath).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(currentPath)).toBe(newStoredPath);
+      expect(fs.realpathSync(previousPath)).toBe(oldStoredPath);
+      expect(fs.readFileSync(newStoredPath)).toEqual(fs.readFileSync(newPackage));
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
