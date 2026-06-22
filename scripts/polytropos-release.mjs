@@ -172,6 +172,34 @@ function installedCorePackageRoots(npmRoot, packageName) {
   ].filter((entry, index, all) => all.indexOf(entry) === index);
 }
 
+export function ensureLegacyOpenClawPackageAlias({ npmRoot, packageName, logStream }) {
+  const installedRoot = installedPackageRoot(npmRoot, packageName);
+  const legacyRoot = installedPackageRoot(npmRoot, "openclaw");
+  if (installedRoot === legacyRoot) {
+    return installedRoot;
+  }
+  if (!fs.existsSync(installedRoot)) {
+    throw new Error(`installed package root not found for legacy alias repair: ${installedRoot}`);
+  }
+  if (fs.existsSync(legacyRoot)) {
+    const legacyRealPath = fs.realpathSync(legacyRoot);
+    const installedRealPath = fs.realpathSync(installedRoot);
+    if (legacyRealPath === installedRealPath) {
+      return legacyRoot;
+    }
+    throw new Error(
+      `legacy openclaw package path already exists and does not match installed root: ${legacyRoot}`,
+    );
+  }
+  fs.mkdirSync(path.dirname(legacyRoot), { recursive: true });
+  fs.symlinkSync(path.relative(path.dirname(legacyRoot), installedRoot), legacyRoot);
+  banner(
+    logStream,
+    `Created compatibility package alias: ${legacyRoot} -> ${path.relative(path.dirname(legacyRoot), installedRoot)}`,
+  );
+  return legacyRoot;
+}
+
 function readReleaseInventory(inventoryPath) {
   const parsed = JSON.parse(fs.readFileSync(inventoryPath, "utf8"));
   if (!parsed || !Array.isArray(parsed.packages)) {
@@ -967,6 +995,15 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConf
     await shRetry(logStream, "npm install -g", async () => {
       await shTee(logStream, "npm", ["install", "-g", "--prefix", prefix, resolvedTgzPath]);
     });
+
+    {
+      const npmRoot = sh("npm", ["root", "-g", "--prefix", prefix]);
+      ensureLegacyOpenClawPackageAlias({
+        npmRoot,
+        packageName: info.name,
+        logStream,
+      });
+    }
 
     banner(logStream, "Running Polytropos bundled plugin deps helper...");
     {
