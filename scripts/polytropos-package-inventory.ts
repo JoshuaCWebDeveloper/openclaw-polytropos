@@ -202,7 +202,71 @@ function npmViewJson(
   }
 }
 
-function collectChangedPluginPackageNames(params: {
+function npmViewVersions(spec: string, packageRegistryUrl: string): string[] {
+  try {
+    const raw = execFileSync(
+      "npm",
+      ["view", spec, "versions", "--json", "--registry", packageRegistryUrl],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    ).trim();
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw) as string | string[];
+    if (typeof parsed === "string") {
+      return parsed.trim() ? [parsed.trim()] : [];
+    }
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.map((entry) => (typeof entry === "string" ? entry.trim() : "")).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+type PublishedVersionResolution = {
+  baseVersion: string | null;
+  latestVersion: string | null;
+  publishedInRun: boolean;
+  artifactUrl: string | null;
+  integrity: string | null;
+};
+
+function resolvePublishedVersionState(params: {
+  publishedPackageName: string;
+  currentReleaseVersion: string;
+  packageRegistryUrl: string;
+}): PublishedVersionResolution {
+  const publishedVersions = npmViewVersions(params.publishedPackageName, params.packageRegistryUrl);
+  const currentIndex = publishedVersions.lastIndexOf(params.currentReleaseVersion);
+  const publishedInRun = currentIndex !== -1;
+  const baseVersion =
+    currentIndex > 0
+      ? publishedVersions[currentIndex - 1]
+      : publishedInRun
+        ? null
+        : (publishedVersions.at(-1) ?? null);
+  const latestVersion = publishedInRun
+    ? params.currentReleaseVersion
+    : (publishedVersions.at(-1) ?? null);
+  const publishedMetadata = latestVersion
+    ? npmViewJson(`${params.publishedPackageName}@${latestVersion}`, params.packageRegistryUrl)
+    : null;
+  return {
+    baseVersion,
+    latestVersion,
+    publishedInRun,
+    artifactUrl: publishedMetadata?.dist?.tarball?.trim() || null,
+    integrity:
+      publishedMetadata?.dist?.integrity?.trim() || publishedMetadata?.dist?.shasum?.trim() || null,
+  };
+}
+
+export function collectChangedPluginPackageNames(params: {
   rootDir: string;
   baseRef: string;
   headRef: string;
@@ -260,20 +324,20 @@ function buildCoreEntry(options: CliOptions): PackageInventoryEntry {
     packageName: "openclaw",
     githubScope: requireGithubPackageScope(options),
   });
-  const publishedMetadata = npmViewJson(
-    `${publishedPackageName}@${publishedVersion}`,
-    options.packageRegistryUrl,
-  );
+  const publishedVersionState = resolvePublishedVersionState({
+    publishedPackageName,
+    currentReleaseVersion: publishedVersion,
+    packageRegistryUrl: options.packageRegistryUrl,
+  });
   return {
     packageName: "openclaw",
     packageType: "core",
-    baseVersion: publishedMetadata?.version?.trim() || null,
-    latestVersion: publishedMetadata?.version?.trim() || publishedVersion,
+    baseVersion: publishedVersionState.baseVersion,
+    latestVersion: publishedVersionState.latestVersion || publishedVersion,
     changed: true,
-    publishedInRun: Boolean(publishedMetadata?.version),
-    artifactUrl: publishedMetadata?.dist?.tarball?.trim() || null,
-    integrity:
-      publishedMetadata?.dist?.integrity?.trim() || publishedMetadata?.dist?.shasum?.trim() || null,
+    publishedInRun: publishedVersionState.publishedInRun,
+    artifactUrl: publishedVersionState.artifactUrl,
+    integrity: publishedVersionState.integrity,
     publishedPackageName,
     diffRoots: ["*"],
     source: "github-package-registry",
@@ -316,21 +380,20 @@ function buildPluginEntries(
       packageName,
       githubScope: requireGithubPackageScope(options),
     });
-    const publishedMetadata = publishedVersion
-      ? npmViewJson(`${publishedPackageName}@${publishedVersion}`, options.packageRegistryUrl)
-      : null;
+    const publishedVersionState = resolvePublishedVersionState({
+      publishedPackageName,
+      currentReleaseVersion: publishedVersion,
+      packageRegistryUrl: options.packageRegistryUrl,
+    });
     return {
       packageName,
       packageType: "plugin",
-      baseVersion: publishedMetadata?.version?.trim() || null,
-      latestVersion: publishedMetadata?.version?.trim() || publishedVersion,
+      baseVersion: publishedVersionState.baseVersion,
+      latestVersion: publishedVersionState.latestVersion || publishedVersion,
       changed: selectedPlugins.has(packageName) && changedPackages.has(packageName),
-      publishedInRun: Boolean(publishedMetadata?.version),
-      artifactUrl: publishedMetadata?.dist?.tarball?.trim() || null,
-      integrity:
-        publishedMetadata?.dist?.integrity?.trim() ||
-        publishedMetadata?.dist?.shasum?.trim() ||
-        null,
+      publishedInRun: publishedVersionState.publishedInRun,
+      artifactUrl: publishedVersionState.artifactUrl,
+      integrity: publishedVersionState.integrity,
       publishedPackageName,
       packageDir: candidate.packageDir,
       extensionId: candidate.extensionId,

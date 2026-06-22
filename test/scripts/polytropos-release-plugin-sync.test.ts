@@ -507,68 +507,69 @@ describe("polytropos release helpers", () => {
     }
   });
 
-  it("writes current and previous compatibility pointers as symlinks into releases/packages", () => {
+  it("writes current and previous inventory pointers as symlinks into the release store", () => {
     const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-pointer-bootstrap-test-"));
     const relRoot = path.join(root, "releases");
-    const installedPackage = createTestOpenClawTgz(root, "2026.6.1-poly.73", "current");
+    const inventoryPath = path.join(relRoot, "v2026.6.1-poly.73.json");
+    fs.mkdirSync(relRoot, { recursive: true });
+    fs.writeFileSync(
+      inventoryPath,
+      JSON.stringify({
+        releaseTag: "v2026.6.1-poly.73",
+        packages: [],
+      }),
+    );
 
     try {
       updateReleasePointers({
         logStream: process.stdout,
         relRoot,
-        packagePath: installedPackage,
+        inventoryPath,
       });
 
-      const storedPath = resolveStoredReleasePackagePath(relRoot, {
-        packageName: "openclaw",
-        version: "2026.6.1-poly.73",
-      });
-      const currentPath = path.join(relRoot, "current.tgz");
-      const previousPath = path.join(relRoot, "previous.tgz");
+      const currentPath = path.join(relRoot, "current.json");
+      const previousPath = path.join(relRoot, "previous.json");
 
       expect(fs.lstatSync(currentPath).isSymbolicLink()).toBe(true);
       expect(fs.lstatSync(previousPath).isSymbolicLink()).toBe(true);
-      expect(fs.realpathSync(currentPath)).toBe(storedPath);
-      expect(fs.realpathSync(previousPath)).toBe(storedPath);
-      expect(fs.readFileSync(storedPath)).toEqual(fs.readFileSync(installedPackage));
+      expect(fs.realpathSync(currentPath)).toBe(inventoryPath);
+      expect(fs.realpathSync(previousPath)).toBe(inventoryPath);
+      expect(fs.readFileSync(inventoryPath, "utf8")).toContain('"releaseTag":"v2026.6.1-poly.73"');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("migrates legacy copied current.tgz into a stored previous pointer target", () => {
+  it("migrates copied current.json into the stored previous pointer target", () => {
     const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-pointer-migrate-test-"));
     const relRoot = path.join(root, "releases");
-    const packageRoot = resolvePackageReleaseStoreDir(relRoot);
-    fs.mkdirSync(packageRoot, { recursive: true });
-    const oldPackage = createTestOpenClawTgz(root, "2026.6.1-poly.71", "old");
-    const newPackage = createTestOpenClawTgz(root, "2026.6.1-poly.73", "new");
-    const oldStoredPath = resolveStoredReleasePackagePath(relRoot, {
-      packageName: "openclaw",
-      version: "2026.6.1-poly.71",
-    });
-    const newStoredPath = resolveStoredReleasePackagePath(relRoot, {
-      packageName: "openclaw",
-      version: "2026.6.1-poly.73",
-    });
-    fs.copyFileSync(oldPackage, oldStoredPath);
-    fs.copyFileSync(oldPackage, path.join(relRoot, "current.tgz"));
+    fs.mkdirSync(relRoot, { recursive: true });
+    const oldStoredPath = path.join(relRoot, "v2026.6.1-poly.71.json");
+    const newStoredPath = path.join(relRoot, "v2026.6.1-poly.73.json");
+    fs.writeFileSync(
+      oldStoredPath,
+      JSON.stringify({ releaseTag: "v2026.6.1-poly.71", packages: [] }),
+    );
+    fs.writeFileSync(
+      newStoredPath,
+      JSON.stringify({ releaseTag: "v2026.6.1-poly.73", packages: [] }),
+    );
+    fs.copyFileSync(oldStoredPath, path.join(relRoot, "current.json"));
 
     try {
       updateReleasePointers({
         logStream: process.stdout,
         relRoot,
-        packagePath: newPackage,
+        inventoryPath: newStoredPath,
       });
 
-      const currentPath = path.join(relRoot, "current.tgz");
-      const previousPath = path.join(relRoot, "previous.tgz");
+      const currentPath = path.join(relRoot, "current.json");
+      const previousPath = path.join(relRoot, "previous.json");
 
       expect(fs.lstatSync(currentPath).isSymbolicLink()).toBe(true);
       expect(fs.lstatSync(previousPath).isSymbolicLink()).toBe(true);
       expect(fs.realpathSync(currentPath)).toBe(newStoredPath);
       expect(fs.realpathSync(previousPath)).toBe(oldStoredPath);
-      expect(fs.readFileSync(newStoredPath)).toEqual(fs.readFileSync(newPackage));
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

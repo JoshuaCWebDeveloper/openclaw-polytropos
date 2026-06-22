@@ -187,206 +187,66 @@ jobs:
           fi
           npm publish "${{ steps.prepare_core_github_package.outputs.tgz }}" --tag latest --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
 
-      - name: Pack acpx plugin artifact
+      - name: Generate tracked package release plan
         if: github.ref_type == 'tag'
-        id: pack_acpx
+        run: |
+          set -euo pipefail
+          mkdir -p .local
+          previous_release_tag="$(git tag -l 'v*-poly.*' | grep -Fxv "${RELEASE_TAG}" | sort -V | tail -n 1 || true)"
+          plan_args=(
+            --tracked-packages-file .github/polytropos-tracked-packages.json
+            --output .local/polytropos-release-plan.json
+            --github-package-scope "${{ steps.github_packages_auth.outputs.package_scope }}"
+          )
+          if [ -n "${previous_release_tag}" ]; then
+            plan_args+=(--base-ref "${previous_release_tag}" --head-ref "${RELEASE_TAG}")
+          fi
+          node --import tsx scripts/polytropos-release-plan.ts "${plan_args[@]}"
+
+      - name: Publish tracked plugin GitHub Packages
+        if: github.ref_type == 'tag'
         run: |
           set -euo pipefail
           plugin_pack_dir="${GITHUB_WORKSPACE}/.local/plugin-packages"
-          mkdir -p "${plugin_pack_dir}"
-          node scripts/lib/plugin-npm-runtime-build.mjs extensions/acpx
-          tgz="$(
-            OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
-              node scripts/lib/plugin-npm-package-manifest.mjs --run extensions/acpx -- \
-              npm pack --ignore-scripts --pack-destination "${plugin_pack_dir}" | tail -n 1
-          )"
-          version="$(node -p 'require("./extensions/acpx/package.json").version')"
-          echo "tgz=${plugin_pack_dir}/${tgz}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Prepare acpx GitHub Packages tarball
-        if: github.ref_type == 'tag'
-        id: prepare_acpx_github_package
-        run: |
-          set -euo pipefail
-          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-acpx"
-          output_tgz=".local/github-packages/$(basename "${{ steps.pack_acpx.outputs.tgz }}")"
-          node scripts/polytropos-prepare-github-package-tarball.mjs \
-            --input "${{ steps.pack_acpx.outputs.tgz }}" \
-            --output "${output_tgz}" \
-            --published-name "${published_name}" \
-            --published-version "${RELEASE_PACKAGE_VERSION}" \
-            --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
-            --install-npm-spec "${published_name}"
-          echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
-          echo "tgz=${output_tgz}" >> "$GITHUB_OUTPUT"
-
-      - name: Publish acpx GitHub Package
-        if: github.ref_type == 'tag'
-        env:
-          PACKAGE_NAME: ${{ steps.prepare_acpx_github_package.outputs.published_name }}
-          PACKAGE_VERSION: ${{ env.RELEASE_PACKAGE_VERSION }}
-        run: |
-          set -euo pipefail
-          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
-            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
-            exit 0
-          fi
-          npm publish "${{ steps.prepare_acpx_github_package.outputs.tgz }}" --tag latest --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
-
-      - name: Pack brave plugin artifact
-        if: github.ref_type == 'tag'
-        id: pack_brave
-        run: |
-          set -euo pipefail
-          plugin_pack_dir="${GITHUB_WORKSPACE}/.local/plugin-packages"
-          mkdir -p "${plugin_pack_dir}"
-          node scripts/lib/plugin-npm-runtime-build.mjs extensions/brave
-          tgz="$(
-            OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
-              node scripts/lib/plugin-npm-package-manifest.mjs --run extensions/brave -- \
-              npm pack --ignore-scripts --pack-destination "${plugin_pack_dir}" | tail -n 1
-          )"
-          version="$(node -p 'require("./extensions/brave/package.json").version')"
-          echo "tgz=${plugin_pack_dir}/${tgz}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Prepare brave GitHub Packages tarball
-        if: github.ref_type == 'tag'
-        id: prepare_brave_github_package
-        run: |
-          set -euo pipefail
-          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-brave-plugin"
-          output_tgz=".local/github-packages/$(basename "${{ steps.pack_brave.outputs.tgz }}")"
-          node scripts/polytropos-prepare-github-package-tarball.mjs \
-            --input "${{ steps.pack_brave.outputs.tgz }}" \
-            --output "${output_tgz}" \
-            --published-name "${published_name}" \
-            --published-version "${RELEASE_PACKAGE_VERSION}" \
-            --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
-            --install-npm-spec "${published_name}"
-          echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
-          echo "tgz=${output_tgz}" >> "$GITHUB_OUTPUT"
-
-      - name: Publish brave GitHub Package
-        if: github.ref_type == 'tag'
-        env:
-          PACKAGE_NAME: ${{ steps.prepare_brave_github_package.outputs.published_name }}
-          PACKAGE_VERSION: ${{ env.RELEASE_PACKAGE_VERSION }}
-        run: |
-          set -euo pipefail
-          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
-            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
-            exit 0
-          fi
-          npm publish "${{ steps.prepare_brave_github_package.outputs.tgz }}" --tag latest --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
-
-      - name: Pack codex plugin artifact
-        if: github.ref_type == 'tag'
-        id: pack_codex
-        run: |
-          set -euo pipefail
-          plugin_pack_dir="${GITHUB_WORKSPACE}/.local/plugin-packages"
-          mkdir -p "${plugin_pack_dir}"
-          node scripts/lib/plugin-npm-runtime-build.mjs extensions/codex
-          tgz="$(
-            OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
-              node scripts/lib/plugin-npm-package-manifest.mjs --run extensions/codex -- \
-              npm pack --ignore-scripts --pack-destination "${plugin_pack_dir}" | tail -n 1
-          )"
-          version="$(node -p 'require("./extensions/codex/package.json").version')"
-          echo "tgz=${plugin_pack_dir}/${tgz}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Prepare codex GitHub Packages tarball
-        if: github.ref_type == 'tag'
-        id: prepare_codex_github_package
-        run: |
-          set -euo pipefail
-          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-codex"
-          output_tgz=".local/github-packages/$(basename "${{ steps.pack_codex.outputs.tgz }}")"
-          node scripts/polytropos-prepare-github-package-tarball.mjs \
-            --input "${{ steps.pack_codex.outputs.tgz }}" \
-            --output "${output_tgz}" \
-            --published-name "${published_name}" \
-            --published-version "${RELEASE_PACKAGE_VERSION}" \
-            --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
-            --install-npm-spec "${published_name}"
-          echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
-          echo "tgz=${output_tgz}" >> "$GITHUB_OUTPUT"
-
-      - name: Publish codex GitHub Package
-        if: github.ref_type == 'tag'
-        env:
-          PACKAGE_NAME: ${{ steps.prepare_codex_github_package.outputs.published_name }}
-          PACKAGE_VERSION: ${{ env.RELEASE_PACKAGE_VERSION }}
-        run: |
-          set -euo pipefail
-          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
-            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
-            exit 0
-          fi
-          npm publish "${{ steps.prepare_codex_github_package.outputs.tgz }}" --tag latest --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
-
-      - name: Pack discord plugin artifact
-        if: github.ref_type == 'tag'
-        id: pack_discord
-        run: |
-          set -euo pipefail
-          plugin_pack_dir="${GITHUB_WORKSPACE}/.local/plugin-packages"
-          mkdir -p "${plugin_pack_dir}"
-          node scripts/lib/plugin-npm-runtime-build.mjs extensions/discord
-          tgz="$(
-            OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
-              node scripts/lib/plugin-npm-package-manifest.mjs --run extensions/discord -- \
-              npm pack --ignore-scripts --pack-destination "${plugin_pack_dir}" | tail -n 1
-          )"
-          version="$(node -p 'require("./extensions/discord/package.json").version')"
-          echo "tgz=${plugin_pack_dir}/${tgz}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Prepare discord GitHub Packages tarball
-        if: github.ref_type == 'tag'
-        id: prepare_discord_github_package
-        run: |
-          set -euo pipefail
-          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-discord"
-          output_tgz=".local/github-packages/$(basename "${{ steps.pack_discord.outputs.tgz }}")"
-          node scripts/polytropos-prepare-github-package-tarball.mjs \
-            --input "${{ steps.pack_discord.outputs.tgz }}" \
-            --output "${output_tgz}" \
-            --published-name "${published_name}" \
-            --published-version "${RELEASE_PACKAGE_VERSION}" \
-            --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
-            --install-npm-spec "${published_name}"
-          echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
-          echo "tgz=${output_tgz}" >> "$GITHUB_OUTPUT"
-
-      - name: Publish discord GitHub Package
-        if: github.ref_type == 'tag'
-        env:
-          PACKAGE_NAME: ${{ steps.prepare_discord_github_package.outputs.published_name }}
-          PACKAGE_VERSION: ${{ env.RELEASE_PACKAGE_VERSION }}
-        run: |
-          set -euo pipefail
-          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
-            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
-            exit 0
-          fi
-          npm publish "${{ steps.prepare_discord_github_package.outputs.tgz }}" --tag latest --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
+          mkdir -p "${plugin_pack_dir}" .local/github-packages
+          while IFS= read -r entry; do
+            package_name="$(jq -r '.packageName' <<<"${entry}")"
+            should_publish="$(jq -r '.shouldPublish' <<<"${entry}")"
+            if [ "${should_publish}" != "true" ]; then
+              echo "Skipping unchanged plugin package ${package_name}."
+              continue
+            fi
+            extension_id="$(jq -r '.extensionId' <<<"${entry}")"
+            published_name="$(jq -r '.publishedPackageName' <<<"${entry}")"
+            package_dir="extensions/${extension_id}"
+            echo "Publishing ${package_name} from ${package_dir}"
+            node scripts/lib/plugin-npm-runtime-build.mjs "${package_dir}"
+            tgz="$(
+              OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
+                node scripts/lib/plugin-npm-package-manifest.mjs --run "${package_dir}" -- \
+                npm pack --ignore-scripts --pack-destination "${plugin_pack_dir}" | tail -n 1
+            )"
+            input_tgz="${plugin_pack_dir}/${tgz}"
+            output_tgz=".local/github-packages/$(basename "${input_tgz}")"
+            node scripts/polytropos-prepare-github-package-tarball.mjs \
+              --input "${input_tgz}" \
+              --output "${output_tgz}" \
+              --published-name "${published_name}" \
+              --published-version "${RELEASE_PACKAGE_VERSION}" \
+              --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
+              --install-npm-spec "${published_name}"
+            if npm view "${published_name}@${RELEASE_PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
+              echo "${published_name}@${RELEASE_PACKAGE_VERSION} already published to GitHub Packages."
+              continue
+            fi
+            npm publish "${output_tgz}" --tag latest --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
+          done < <(jq -c '.packages[] | select(.packageType=="plugin")' .local/polytropos-release-plan.json)
 
       - name: Wait for GitHub Packages visibility
         if: github.ref_type == 'tag'
         run: |
           set -euo pipefail
-          specs=(
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-core@${RELEASE_PACKAGE_VERSION}"
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-acpx@${RELEASE_PACKAGE_VERSION}"
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-brave-plugin@${RELEASE_PACKAGE_VERSION}"
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-codex@${RELEASE_PACKAGE_VERSION}"
-            "@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-discord@${RELEASE_PACKAGE_VERSION}"
-          )
-          for spec in "${specs[@]}"; do
+          while IFS= read -r spec; do
             for attempt in $(seq 1 12); do
               if npm view "${spec}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
                 echo "Visible: ${spec}"
@@ -398,7 +258,13 @@ jobs:
               fi
               sleep 5
             done
-          done
+          done < <(
+            jq -r --arg version "${RELEASE_PACKAGE_VERSION}" '
+              .packages[]
+              | select(.packageType == "core" or (.packageType == "plugin" and .shouldPublish == true))
+              | "\(.publishedPackageName)@\($version)"
+            ' .local/polytropos-release-plan.json
+          )
 
       - name: Generate package inventory
         if: github.ref_type == 'tag'

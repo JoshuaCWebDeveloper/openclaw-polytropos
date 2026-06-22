@@ -883,28 +883,17 @@ function filesMatch(leftPath, rightPath) {
   );
 }
 
-function resolveStoredPointerPackagePath({ logStream, relRoot, packagePath, label }) {
-  const info = tgzInternalVersion(packagePath);
-  if (!isPolytroposCorePackageName(info.name)) {
-    throw new Error(`${label} has unexpected package name ${info.name}`);
+function resolveStoredPointerInventoryPath({ logStream, relRoot, inventoryPath, label }) {
+  const inventory = readReleaseInventory(inventoryPath);
+  const releaseTag = inventory.releaseTag?.trim() || releaseTagFromInventoryPath(inventoryPath);
+  if (!releaseTag) {
+    throw new Error(`could not resolve release tag for ${label}: ${inventoryPath}`);
   }
-  if (typeof info.version !== "string" || !info.version.trim()) {
-    throw new Error(`${label} is missing a package version`);
-  }
-
-  const storedPath = resolveStoredReleasePackagePath(relRoot, {
-    packageName: "openclaw",
-    version: info.version,
-  });
+  const storedPath = inventoryPathForTag(relRoot, releaseTag);
   if (fs.existsSync(storedPath)) {
-    assertCorePackageMatchesExpected({
-      packagePath: storedPath,
-      expectedVersion: info.version,
-      contextLabel: `stored pointer package ${storedPath}`,
-    });
-    if (!filesMatch(packagePath, storedPath)) {
+    if (!filesMatch(inventoryPath, storedPath)) {
       throw new Error(
-        `${label} does not match authoritative stored package ${storedPath} for version ${info.version}`,
+        `${label} does not match authoritative stored inventory ${storedPath} for ${releaseTag}`,
       );
     }
     return storedPath;
@@ -912,9 +901,9 @@ function resolveStoredPointerPackagePath({ logStream, relRoot, packagePath, labe
 
   fs.mkdirSync(path.dirname(storedPath), { recursive: true });
   const tempStoredPath = `${storedPath}.tmp-${process.pid}-${randomUUID()}`;
-  fs.copyFileSync(packagePath, tempStoredPath);
+  fs.copyFileSync(inventoryPath, tempStoredPath);
   fs.renameSync(tempStoredPath, storedPath);
-  banner(logStream, `Stored ${label} in release package store: ${storedPath}`);
+  banner(logStream, `Stored ${label} in release inventory store: ${storedPath}`);
   return storedPath;
 }
 
@@ -927,10 +916,10 @@ function resolveExistingPointerTarget({ logStream, relRoot, pointerPath, label }
   }
 
   const sourcePath = stat.isSymbolicLink() ? fs.realpathSync(pointerPath) : pointerPath;
-  return resolveStoredPointerPackagePath({
+  return resolveStoredPointerInventoryPath({
     logStream,
     relRoot,
-    packagePath: sourcePath,
+    inventoryPath: sourcePath,
     label,
   });
 }
@@ -944,38 +933,38 @@ function writeReleasePointer({ pointerPath, targetPath }) {
   fs.renameSync(tempPointerPath, pointerPath);
 }
 
-export function updateReleasePointers({ logStream, relRoot, packagePath }) {
-  const currentPath = path.join(relRoot, "current.tgz");
-  const previousPath = path.join(relRoot, "previous.tgz");
-  const storedCurrentPackagePath = resolveStoredPointerPackagePath({
+export function updateReleasePointers({ logStream, relRoot, inventoryPath }) {
+  const currentPath = path.join(relRoot, "current.json");
+  const previousPath = path.join(relRoot, "previous.json");
+  const storedCurrentInventoryPath = resolveStoredPointerInventoryPath({
     logStream,
     relRoot,
-    packagePath,
-    label: `installed core package ${packagePath}`,
+    inventoryPath,
+    label: `installed release inventory ${inventoryPath}`,
   });
-  const storedPreviousPackagePath = resolveExistingPointerTarget({
+  const storedPreviousInventoryPath = resolveExistingPointerTarget({
     logStream,
     relRoot,
     pointerPath: currentPath,
-    label: `existing current compatibility pointer ${currentPath}`,
+    label: `existing current release pointer ${currentPath}`,
   });
 
-  if (storedPreviousPackagePath) {
+  if (storedPreviousInventoryPath) {
     writeReleasePointer({
       pointerPath: previousPath,
-      targetPath: storedPreviousPackagePath,
+      targetPath: storedPreviousInventoryPath,
     });
   } else {
     writeReleasePointer({
       pointerPath: previousPath,
-      targetPath: storedCurrentPackagePath,
+      targetPath: storedCurrentInventoryPath,
     });
   }
   writeReleasePointer({
     pointerPath: currentPath,
-    targetPath: storedCurrentPackagePath,
+    targetPath: storedCurrentInventoryPath,
   });
-  banner(logStream, `Updated release package pointers: ${currentPath}, ${previousPath}`);
+  banner(logStream, `Updated release inventory pointers: ${currentPath}, ${previousPath}`);
 }
 
 async function runPostInstallPluginSync({ logStream, pluginSyncCommand, pluginSyncConfig }) {
@@ -1125,7 +1114,7 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConf
   updateReleasePointers({
     logStream,
     relRoot: releasesRoot(),
-    packagePath: resolvedTgzPath,
+    inventoryPath,
   });
   banner(logStream, "Activation required: restart the gateway to run the new code");
   banner(logStream, `Install completed for version ${info.version} (not activated).`);
