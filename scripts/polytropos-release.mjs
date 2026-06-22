@@ -530,6 +530,7 @@ export function parseArgs(argv) {
   let runId = null;
   let rerunRun = false;
   let installTgz = null;
+  let inventoryPath = null;
   let baseRef = null;
   let headRef = null;
   let pluginSyncConfig = "auto";
@@ -601,6 +602,15 @@ export function parseArgs(argv) {
       i++;
       continue;
     }
+    if (a === "--inventory-path") {
+      const v = args[i + 1];
+      if (!v) {
+        fail("--inventory-path requires a path");
+      }
+      inventoryPath = v;
+      i++;
+      continue;
+    }
     if (a === "--head-ref") {
       const v = args[i + 1];
       if (!v) {
@@ -629,6 +639,7 @@ export function parseArgs(argv) {
         runId,
         rerunRun,
         installTgz,
+        inventoryPath,
         baseRef,
         headRef,
         pluginSyncConfig,
@@ -656,6 +667,7 @@ export function parseArgs(argv) {
     runId,
     rerunRun,
     installTgz,
+    inventoryPath,
     baseRef,
     headRef,
     pluginSyncConfig,
@@ -1010,7 +1022,14 @@ async function runPostInstallPluginSync({ logStream, pluginSyncCommand, pluginSy
   }
 }
 
-async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConfig }) {
+async function runInstall({
+  logStream,
+  tgzPath,
+  inventoryPath,
+  baseRef,
+  headRef,
+  pluginSyncConfig,
+}) {
   let installInput;
   try {
     installInput = await prepareInstallPackageInput(tgzPath, {
@@ -1030,6 +1049,12 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConf
   const effectiveHeadRef = headRef ?? installInput.releaseTag ?? null;
   const effectiveBaseRef =
     baseRef ?? (effectiveHeadRef ? findPreviousReleaseTag(effectiveHeadRef) : null);
+  const effectiveInventoryPath =
+    inventoryPath ??
+    installInput.inventoryPath ??
+    (effectiveHeadRef
+      ? resolveExistingInventoryPathForTag(releasesRoot(), effectiveHeadRef)
+      : null);
   banner(logStream, `Installing tgz ${resolvedTgzPath} (version ${info.version})`);
 
   const prefix = getGlobalPrefix();
@@ -1111,11 +1136,15 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConf
     throw error;
   }
 
-  updateReleasePointers({
-    logStream,
-    relRoot: releasesRoot(),
-    inventoryPath,
-  });
+  if (effectiveInventoryPath && fs.existsSync(effectiveInventoryPath)) {
+    updateReleasePointers({
+      logStream,
+      relRoot: releasesRoot(),
+      inventoryPath: effectiveInventoryPath,
+    });
+  } else {
+    banner(logStream, "Skipping release inventory pointer refresh: no inventory path available");
+  }
   banner(logStream, "Activation required: restart the gateway to run the new code");
   banner(logStream, `Install completed for version ${info.version} (not activated).`);
 }
@@ -1149,7 +1178,14 @@ async function main(argv = process.argv) {
 
   try {
     if (cmd === "install") {
-      await runInstall({ logStream, tgzPath: installTgz, baseRef, headRef, pluginSyncConfig });
+      await runInstall({
+        logStream,
+        tgzPath: installTgz,
+        inventoryPath,
+        baseRef,
+        headRef,
+        pluginSyncConfig,
+      });
     } else {
       let releaseTag = requestedTag ?? computeNextReleaseTag();
       if (!/^v.+-poly\.\d+$/.test(releaseTag)) {
@@ -1298,6 +1334,7 @@ async function main(argv = process.argv) {
       const installCommand = buildInstallCommand({
         repoRoot: REPO_ROOT,
         tgzPath: tarPath,
+        inventoryPath,
         baseRef: previousReleaseTag ?? undefined,
         headRef: releaseTag,
         logPath,
