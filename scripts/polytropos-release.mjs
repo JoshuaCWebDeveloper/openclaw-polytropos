@@ -775,6 +775,51 @@ export function resolveInstallPackageInput(inputPath) {
   return { packagePath, releaseTag, inventoryPath: resolvedInputPath };
 }
 
+export async function prepareInstallPackageInput(
+  inputPath,
+  { env = process.env, ensureStoredReleasePackageImpl = ensureStoredReleasePackage, logger } = {},
+) {
+  const resolvedInputPath = path.resolve(inputPath);
+  if (!fs.existsSync(resolvedInputPath)) {
+    throw new Error(`install package input does not exist: ${resolvedInputPath}`);
+  }
+  if (path.extname(resolvedInputPath) !== ".json") {
+    return { packagePath: resolvedInputPath, releaseTag: null, inventoryPath: null };
+  }
+
+  const inventory = readReleaseInventory(resolvedInputPath);
+  const releaseTag =
+    typeof inventory.releaseTag === "string" && inventory.releaseTag.trim()
+      ? inventory.releaseTag.trim()
+      : releaseTagFromInventoryPath(resolvedInputPath);
+  if (!releaseTag) {
+    throw new Error(`could not infer release tag from inventory: ${resolvedInputPath}`);
+  }
+  const coreEntry = resolveCoreInventoryEntry(inventory, resolvedInputPath);
+  const relRoot = path.dirname(resolvedInputPath);
+  let packagePath = resolveStoredReleasePackagePath(relRoot, {
+    packageName: coreEntry.packageName,
+    version: coreEntry.latestVersion,
+  });
+  if (!fs.existsSync(packagePath)) {
+    packagePath = await ensureStoredReleasePackageImpl({
+      relRoot,
+      packageName: coreEntry.packageName,
+      registryPackageName: coreEntry.publishedPackageName,
+      version: coreEntry.latestVersion,
+      artifactUrl: coreEntry.artifactUrl,
+      logger,
+      env,
+    });
+  }
+  assertCorePackageMatchesExpected({
+    packagePath,
+    expectedVersion: coreEntry.latestVersion,
+    contextLabel: `stored core package ${packagePath}`,
+  });
+  return { packagePath, releaseTag, inventoryPath: resolvedInputPath };
+}
+
 function moveAsideIfExists(logStream, targetPath, label) {
   if (!fs.existsSync(targetPath) && !fs.existsSync(path.dirname(targetPath))) {
     return null;
@@ -873,7 +918,12 @@ async function runPostInstallPluginSync({ logStream, pluginSyncCommand, pluginSy
 async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConfig }) {
   let installInput;
   try {
-    installInput = resolveInstallPackageInput(tgzPath);
+    installInput = await prepareInstallPackageInput(tgzPath, {
+      logger: {
+        info: (message) => banner(logStream, message),
+        warn: (message) => banner(logStream, message),
+      },
+    });
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }
@@ -951,7 +1001,7 @@ async function runInstall({ logStream, tgzPath, baseRef, headRef, pluginSyncConf
     }
   } catch (error) {
     banner(logStream, `Install failed; attempting rollback: ${String(error?.message ?? error)}`);
-    for (const entry of rollbackEntries.reverse()) {
+    for (const entry of rollbackEntries.toReversed()) {
       restoreMovedAsidePath(logStream, entry);
     }
     throw error;
