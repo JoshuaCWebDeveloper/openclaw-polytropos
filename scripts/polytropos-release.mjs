@@ -876,27 +876,105 @@ function restoreMovedAsidePath(logStream, { targetPath, backupPath, label }) {
   fs.renameSync(backupPath, targetPath);
 }
 
-function updateReleasePointers({ logStream, relRoot, packagePath }) {
+function filesMatch(leftPath, rightPath) {
+  return (
+    fs.statSync(leftPath).size === fs.statSync(rightPath).size &&
+    fs.readFileSync(leftPath).equals(fs.readFileSync(rightPath))
+  );
+}
+
+function resolveStoredPointerPackagePath({ logStream, relRoot, packagePath, label }) {
+  const info = tgzInternalVersion(packagePath);
+  if (!isPolytroposCorePackageName(info.name)) {
+    throw new Error(`${label} has unexpected package name ${info.name}`);
+  }
+  if (typeof info.version !== "string" || !info.version.trim()) {
+    throw new Error(`${label} is missing a package version`);
+  }
+
+  const storedPath = resolveStoredReleasePackagePath(relRoot, {
+    packageName: "openclaw",
+    version: info.version,
+  });
+  if (fs.existsSync(storedPath)) {
+    assertCorePackageMatchesExpected({
+      packagePath: storedPath,
+      expectedVersion: info.version,
+      contextLabel: `stored pointer package ${storedPath}`,
+    });
+    if (!filesMatch(packagePath, storedPath)) {
+      throw new Error(
+        `${label} does not match authoritative stored package ${storedPath} for version ${info.version}`,
+      );
+    }
+    return storedPath;
+  }
+
+  fs.mkdirSync(path.dirname(storedPath), { recursive: true });
+  const tempStoredPath = `${storedPath}.tmp-${process.pid}-${randomUUID()}`;
+  fs.copyFileSync(packagePath, tempStoredPath);
+  fs.renameSync(tempStoredPath, storedPath);
+  banner(logStream, `Stored ${label} in release package store: ${storedPath}`);
+  return storedPath;
+}
+
+function resolveExistingPointerTarget({ logStream, relRoot, pointerPath, label }) {
+  let stat;
+  try {
+    stat = fs.lstatSync(pointerPath);
+  } catch {
+    return null;
+  }
+
+  const sourcePath = stat.isSymbolicLink() ? fs.realpathSync(pointerPath) : pointerPath;
+  return resolveStoredPointerPackagePath({
+    logStream,
+    relRoot,
+    packagePath: sourcePath,
+    label,
+  });
+}
+
+function writeReleasePointer({ pointerPath, targetPath }) {
+  const tempPointerPath = `${pointerPath}.tmp-${process.pid}-${randomUUID()}`;
+  const relativeTarget = path.relative(path.dirname(pointerPath), targetPath);
+  fs.rmSync(tempPointerPath, { force: true });
+  fs.symlinkSync(relativeTarget, tempPointerPath);
+  fs.rmSync(pointerPath, { force: true, recursive: true });
+  fs.renameSync(tempPointerPath, pointerPath);
+}
+
+export function updateReleasePointers({ logStream, relRoot, packagePath }) {
   const currentPath = path.join(relRoot, "current.tgz");
   const previousPath = path.join(relRoot, "previous.tgz");
-  const tempCurrentPath = `${currentPath}.tmp-${process.pid}-${randomUUID()}`;
-  const tempPreviousPath = `${previousPath}.tmp-${process.pid}-${randomUUID()}`;
-  const currentMatchesPackage =
-    fs.existsSync(currentPath) &&
-    fs.statSync(currentPath).size === fs.statSync(packagePath).size &&
-    fs.readFileSync(currentPath).equals(fs.readFileSync(packagePath));
+  const storedCurrentPackagePath = resolveStoredPointerPackagePath({
+    logStream,
+    relRoot,
+    packagePath,
+    label: `installed core package ${packagePath}`,
+  });
+  const storedPreviousPackagePath = resolveExistingPointerTarget({
+    logStream,
+    relRoot,
+    pointerPath: currentPath,
+    label: `existing current compatibility pointer ${currentPath}`,
+  });
 
-  try {
-    if (fs.existsSync(currentPath) && !currentMatchesPackage) {
-      fs.copyFileSync(currentPath, tempPreviousPath);
-      fs.renameSync(tempPreviousPath, previousPath);
-    }
-    fs.copyFileSync(packagePath, tempCurrentPath);
-    fs.renameSync(tempCurrentPath, currentPath);
-  } finally {
-    fs.rmSync(tempCurrentPath, { force: true });
-    fs.rmSync(tempPreviousPath, { force: true });
+  if (storedPreviousPackagePath) {
+    writeReleasePointer({
+      pointerPath: previousPath,
+      targetPath: storedPreviousPackagePath,
+    });
+  } else {
+    writeReleasePointer({
+      pointerPath: previousPath,
+      targetPath: storedCurrentPackagePath,
+    });
   }
+  writeReleasePointer({
+    pointerPath: currentPath,
+    targetPath: storedCurrentPackagePath,
+  });
   banner(logStream, `Updated release package pointers: ${currentPath}, ${previousPath}`);
 }
 
