@@ -114,14 +114,18 @@ Apply the same model to core:
 
 - treat `openclaw` as one tracked package
 - publish it to GitHub Packages
-- only publish when relevant core source paths changed since the prior published Polytropos release for core
 - keep the workflow output as a full package inventory, not just one tarball
-- if core did not change, carry forward the previous core locator in the release inventory instead of forcing a new core package
+
+Current implementation rule for core:
+
+- for now, build and publish the core package on every Polytropos release
+- do not block the inventory-first release flow on core change detection
+- revisit core-specific diffing only after the package inventory contract and downstream install flow are stable
 
 Default safe rule for core:
 
 - it is acceptable to over-include core source paths
-- for the first pass, use a broad core scope rather than trying to minimize it aggressively
+- when core-specific diffing is implemented later, use a broad core scope rather than trying to minimize it aggressively
 
 ### 5) Full package inventory artifact
 
