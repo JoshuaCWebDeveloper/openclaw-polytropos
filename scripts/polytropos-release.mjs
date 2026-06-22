@@ -1028,7 +1028,6 @@ async function restartGatewayAfterInstall({ logStream, prefix }) {
   await shTee(logStream, openclawBin, ["gateway", "restart"]);
   banner(logStream, "Gateway restart completed.");
 }
-
 async function runInstall({
   logStream,
   tgzPath,
