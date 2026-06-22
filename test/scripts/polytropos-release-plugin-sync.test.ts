@@ -21,6 +21,7 @@ import {
   assertReleaseStoreConsistent,
   createSanitizedTemporaryConfigPath,
   parseArgs,
+  prepareInstallPackageInput,
   resolvePolytroposReleaseArtifacts,
   resolveReleaseCoreInstallPackagePath,
   resolveInstallPackageInput,
@@ -611,6 +612,70 @@ describe("polytropos release helpers", () => {
 
     try {
       expect(resolveInstallPackageInput(inventoryPath)).toEqual({
+        packagePath: localCorePackage,
+        releaseTag,
+        inventoryPath,
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("hydrates the staged core package when an inventory install input is missing it locally", async () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-install-hydrate-test-"));
+    const relRoot = path.join(root, "releases");
+    const releaseTag = "v2026.6.1-poly.71";
+    const expectedVersion = "2026.6.1-poly.71";
+    const inventoryPath = path.join(relRoot, `${releaseTag}.package-inventory.json`);
+    const localCorePackage = resolveStoredReleasePackagePath(relRoot, {
+      packageName: "openclaw",
+      version: expectedVersion,
+    });
+    const replacementTgz = createTestPackageTgz(
+      root,
+      "@joshuacwebdeveloper/openclaw-polytropos-core",
+      expectedVersion,
+      "replacement",
+    );
+    fs.mkdirSync(relRoot, { recursive: true });
+    fs.writeFileSync(
+      inventoryPath,
+      JSON.stringify(
+        {
+          releaseTag,
+          packages: [
+            {
+              packageName: "openclaw",
+              publishedPackageName: "@joshuacwebdeveloper/openclaw-polytropos-core",
+              packageType: "core",
+              latestVersion: expectedVersion,
+              artifactUrl:
+                "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-core/2026.6.1-poly.71/archive",
+              integrity: "sha512-test",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    try {
+      await expect(
+        prepareInstallPackageInput(inventoryPath, {
+          ensureStoredReleasePackageImpl: async (params) => {
+            expect(params.relRoot).toBe(relRoot);
+            expect(params.packageName).toBe("openclaw");
+            expect(params.registryPackageName).toBe(
+              "@joshuacwebdeveloper/openclaw-polytropos-core",
+            );
+            expect(params.version).toBe(expectedVersion);
+            await fs.promises.mkdir(path.dirname(localCorePackage), { recursive: true });
+            await fs.promises.copyFile(replacementTgz, localCorePackage);
+            return localCorePackage;
+          },
+        }),
+      ).resolves.toEqual({
         packagePath: localCorePackage,
         releaseTag,
         inventoryPath,
