@@ -1022,6 +1022,13 @@ async function runPostInstallPluginSync({ logStream, pluginSyncCommand, pluginSy
   }
 }
 
+async function restartGatewayAfterInstall({ logStream, prefix }) {
+  const openclawBin = path.join(prefix, "bin", "openclaw");
+  banner(logStream, `Restarting gateway with ${openclawBin} gateway restart`);
+  await shTee(logStream, openclawBin, ["gateway", "restart"]);
+  banner(logStream, "Gateway restart completed.");
+}
+
 async function runInstall({
   logStream,
   tgzPath,
@@ -1145,8 +1152,8 @@ async function runInstall({
   } else {
     banner(logStream, "Skipping release inventory pointer refresh: no inventory path available");
   }
-  banner(logStream, "Activation required: restart the gateway to run the new code");
-  banner(logStream, `Install completed for version ${info.version} (not activated).`);
+  await restartGatewayAfterInstall({ logStream, prefix });
+  banner(logStream, `Install completed for version ${info.version} and restarted the gateway.`);
 }
 
 async function main(argv = process.argv) {
