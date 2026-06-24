@@ -2,6 +2,7 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -182,9 +183,44 @@ function npmViewJson(
   version?: string;
   dist?: { tarball?: string; integrity?: string; shasum?: string };
 } | null {
+  const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-polytropos-npm-view-"));
   try {
+    const env = { ...process.env };
+    if (packageRegistryUrl === GITHUB_PACKAGES_REGISTRY_URL) {
+      const token =
+        process.env.NODE_AUTH_TOKEN?.trim() ||
+        process.env.GITHUB_TOKEN?.trim() ||
+        process.env.GH_TOKEN?.trim() ||
+        process.env.NPM_TOKEN?.trim() ||
+        (() => {
+          try {
+            return execFileSync("gh", ["auth", "token"], {
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "ignore"],
+            }).trim();
+          } catch {
+            return "";
+          }
+        })();
+      if (token) {
+        const scopeMatch = /^(@[^/]+)\//u.exec(spec.trim());
+        const npmrcPath = path.join(stagingDir, ".npmrc");
+        const scopeLine = scopeMatch?.[1]
+          ? `${scopeMatch[1]}:registry=${packageRegistryUrl}\n`
+          : "";
+        fs.writeFileSync(
+          npmrcPath,
+          `${scopeLine}//npm.pkg.github.com/:_authToken=\${NODE_AUTH_TOKEN}\nalways-auth=true\n`,
+          { mode: 0o600 },
+        );
+        env.NODE_AUTH_TOKEN = token;
+        env.NPM_CONFIG_USERCONFIG = npmrcPath;
+        env.npm_config_userconfig = npmrcPath;
+      }
+    }
     const raw = execFileSync("npm", ["view", spec, "--json", "--registry", packageRegistryUrl], {
       encoding: "utf8",
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
     if (!raw) {
@@ -199,6 +235,8 @@ function npmViewJson(
     return Array.isArray(parsed) ? (parsed.at(-1) ?? null) : parsed;
   } catch {
     return null;
+  } finally {
+    fs.rmSync(stagingDir, { recursive: true, force: true });
   }
 }
 
