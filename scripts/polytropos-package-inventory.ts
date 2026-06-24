@@ -228,6 +228,43 @@ function npmViewVersions(spec: string, packageRegistryUrl: string): string[] {
   }
 }
 
+function parsePublishedPackageArtifactName(publishedPackageName: string): string {
+  const match = publishedPackageName.match(/^@[^/]+\/(.+)$/);
+  return match?.[1]?.trim() || publishedPackageName.trim();
+}
+
+function ghPackageVersionNames(params: {
+  githubPackageScope: string;
+  publishedPackageName: string;
+}): string[] {
+  const owner = params.githubPackageScope.trim();
+  const packageName = parsePublishedPackageArtifactName(params.publishedPackageName);
+  const endpoints = [
+    `/users/${owner}/packages/npm/${packageName}/versions`,
+    `/orgs/${owner}/packages/npm/${packageName}/versions`,
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const raw = execFileSync("gh", ["api", endpoint, "--paginate", "--jq", ".[].name"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+      if (!raw) {
+        continue;
+      }
+      return raw
+        .split(/\r?\n/)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    } catch {
+      continue;
+    }
+  }
+
+  return [];
+}
+
 type PublishedVersionResolution = {
   baseVersion: string | null;
   latestVersion: string | null;
@@ -240,32 +277,30 @@ export function resolvePublishedVersionState(params: {
   publishedPackageName: string;
   currentReleaseVersion: string;
   packageRegistryUrl: string;
+  githubPackageScope: string;
 }): PublishedVersionResolution {
-  const publishedVersions = npmViewVersions(params.publishedPackageName, params.packageRegistryUrl);
-  const latestPublishedMetadata = npmViewJson(
-    params.publishedPackageName,
-    params.packageRegistryUrl,
-  );
-  const latestVersion =
-    latestPublishedMetadata?.version?.trim() || (publishedVersions.at(-1) ?? null);
-  const latestIndex = latestVersion ? publishedVersions.lastIndexOf(latestVersion) : -1;
+  const publishedVersions =
+    ghPackageVersionNames({
+      githubPackageScope: params.githubPackageScope,
+      publishedPackageName: params.publishedPackageName,
+    }) || npmViewVersions(params.publishedPackageName, params.packageRegistryUrl);
+  const latestVersion = publishedVersions[0] ?? null;
   const publishedInRun = latestVersion === params.currentReleaseVersion;
   const baseVersion = latestVersion
     ? publishedInRun
-      ? latestIndex > 0
-        ? publishedVersions[latestIndex - 1]
-        : null
+      ? (publishedVersions[1] ?? null)
       : latestVersion
+    : null;
+  const resolvedMetadata = latestVersion
+    ? npmViewJson(`${params.publishedPackageName}@${latestVersion}`, params.packageRegistryUrl)
     : null;
   return {
     baseVersion,
     latestVersion,
     publishedInRun,
-    artifactUrl: latestPublishedMetadata?.dist?.tarball?.trim() || null,
+    artifactUrl: resolvedMetadata?.dist?.tarball?.trim() || null,
     integrity:
-      latestPublishedMetadata?.dist?.integrity?.trim() ||
-      latestPublishedMetadata?.dist?.shasum?.trim() ||
-      null,
+      resolvedMetadata?.dist?.integrity?.trim() || resolvedMetadata?.dist?.shasum?.trim() || null,
   };
 }
 
@@ -331,12 +366,16 @@ function buildCoreEntry(options: CliOptions): PackageInventoryEntry {
     publishedPackageName,
     currentReleaseVersion: publishedVersion,
     packageRegistryUrl: options.packageRegistryUrl,
+    githubPackageScope: requireGithubPackageScope(options),
   });
+  if (!publishedVersionState.latestVersion) {
+    fail(`Could not resolve latest published core package version for ${publishedPackageName}`);
+  }
   return {
     packageName: "openclaw",
     packageType: "core",
     baseVersion: publishedVersionState.baseVersion,
-    latestVersion: publishedVersionState.latestVersion || publishedVersion,
+    latestVersion: publishedVersionState.latestVersion,
     changed: true,
     publishedInRun: publishedVersionState.publishedInRun,
     artifactUrl: publishedVersionState.artifactUrl,
@@ -387,12 +426,16 @@ function buildPluginEntries(
       publishedPackageName,
       currentReleaseVersion: publishedVersion,
       packageRegistryUrl: options.packageRegistryUrl,
+      githubPackageScope: requireGithubPackageScope(options),
     });
+    if (!publishedVersionState.latestVersion) {
+      fail(`Could not resolve latest published plugin package version for ${publishedPackageName}`);
+    }
     return {
       packageName,
       packageType: "plugin",
       baseVersion: publishedVersionState.baseVersion,
-      latestVersion: publishedVersionState.latestVersion || publishedVersion,
+      latestVersion: publishedVersionState.latestVersion,
       changed: selectedPlugins.has(packageName) && changedPackages.has(packageName),
       publishedInRun: publishedVersionState.publishedInRun,
       artifactUrl: publishedVersionState.artifactUrl,
