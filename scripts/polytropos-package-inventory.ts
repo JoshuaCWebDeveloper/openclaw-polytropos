@@ -236,7 +236,7 @@ type PublishedVersionResolution = {
   integrity: string | null;
 };
 
-function resolvePublishedVersionState(params: {
+export function resolvePublishedVersionState(params: {
   publishedPackageName: string;
   currentReleaseVersion: string;
   packageRegistryUrl: string;
@@ -250,7 +250,13 @@ function resolvePublishedVersionState(params: {
     latestPublishedMetadata?.version?.trim() || (publishedVersions.at(-1) ?? null);
   const latestIndex = latestVersion ? publishedVersions.lastIndexOf(latestVersion) : -1;
   const publishedInRun = latestVersion === params.currentReleaseVersion;
-  const baseVersion = latestIndex > 0 ? publishedVersions[latestIndex - 1] : null;
+  const baseVersion = latestVersion
+    ? publishedInRun
+      ? latestIndex > 0
+        ? publishedVersions[latestIndex - 1]
+        : null
+      : latestVersion
+    : null;
   return {
     baseVersion,
     latestVersion,
