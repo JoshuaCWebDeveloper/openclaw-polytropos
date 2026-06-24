@@ -9,9 +9,9 @@ describe("resolvePublishedVersionState", () => {
 
   it("uses the latest published version as both base and latest when no package was published in the current release", async () => {
     vi.doMock("node:child_process", () => ({
-      execFileSync: (_command: string, args: string[]) => {
-        if (args[2] === "versions") {
-          return JSON.stringify(["2026.6.1-poly.74", "2026.6.1-poly.75"]);
+      execFileSync: (command: string, _args: string[]) => {
+        if (command === "gh") {
+          return "2026.6.1-poly.75\n2026.6.1-poly.74\n";
         }
         return JSON.stringify({
           version: "2026.6.1-poly.75",
@@ -32,6 +32,7 @@ describe("resolvePublishedVersionState", () => {
         publishedPackageName: "@openclaw/codex",
         currentReleaseVersion: "2026.6.1-poly.77",
         packageRegistryUrl: "https://npm.pkg.github.com",
+        githubPackageScope: "joshuacwebdeveloper",
       }),
     ).toMatchObject({
       baseVersion: "2026.6.1-poly.75",
@@ -44,9 +45,9 @@ describe("resolvePublishedVersionState", () => {
 
   it("uses the previous published version as base when the current release published a new package", async () => {
     vi.doMock("node:child_process", () => ({
-      execFileSync: (_command: string, args: string[]) => {
-        if (args[2] === "versions") {
-          return JSON.stringify(["2026.6.1-poly.74", "2026.6.1-poly.75", "2026.6.1-poly.77"]);
+      execFileSync: (command: string, _args: string[]) => {
+        if (command === "gh") {
+          return "2026.6.1-poly.77\n2026.6.1-poly.75\n2026.6.1-poly.74\n";
         }
         return JSON.stringify({
           version: "2026.6.1-poly.77",
@@ -67,6 +68,7 @@ describe("resolvePublishedVersionState", () => {
         publishedPackageName: "@openclaw/codex",
         currentReleaseVersion: "2026.6.1-poly.77",
         packageRegistryUrl: "https://npm.pkg.github.com",
+        githubPackageScope: "joshuacwebdeveloper",
       }),
     ).toMatchObject({
       baseVersion: "2026.6.1-poly.75",
