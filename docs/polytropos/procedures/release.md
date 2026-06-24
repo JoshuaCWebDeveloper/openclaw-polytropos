@@ -9,7 +9,7 @@ Stage and activate versioned Polytropos releases from a valid release branch.
 - **Release branch:** `release/YYYY.M.D`
 - **Release tag:** `vYYYY.M.D-poly.N`
 - **Staging:** resolve the release inventory, ensure each needed package archive exists in the local package store, install the staged core package, and run the bundled deps helper plus plugin sync.
-- **Activation:** restart/reload the gateway so the running process uses the newly installed version.
+- **Activation:** the install flow now restarts the gateway at the end so the running process picks up the installed version immediately.
 
 ## Authoritative release store
 
@@ -26,7 +26,7 @@ The inventory decides which package version and artifact locator belong to a rel
 3. The script creates/pushes the next `v<version>-poly.<N>` tag automatically.
 4. GitHub Actions publishes the tracked packages and builds the `polytropos-package-inventory-<tag>` artifact.
 5. The script waits for CI, downloads the inventory and any missing package archives from the same run/package locators, installs the staged core package, and runs the bundled deps helper plus plugin sync.
-6. Restart/reload the gateway to activate it.
+6. The install flow restarts/reloads the gateway to activate it.
 
 ## Canonical command
 
@@ -56,8 +56,8 @@ Use `--run-id` only to reuse an existing workflow run for the exact tag; the scr
 
 ## Activation
 
-Activation is intentionally separate from staging.
-After staging succeeds, restart/reload the gateway using the correct environment-specific procedure.
+Activation is part of the install flow.
+After the staged package and inventory checks succeed, the script restarts the gateway automatically.
 
 ## Rollback
 

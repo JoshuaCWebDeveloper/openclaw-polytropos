@@ -242,27 +242,24 @@ function resolvePublishedVersionState(params: {
   packageRegistryUrl: string;
 }): PublishedVersionResolution {
   const publishedVersions = npmViewVersions(params.publishedPackageName, params.packageRegistryUrl);
-  const currentIndex = publishedVersions.lastIndexOf(params.currentReleaseVersion);
-  const publishedInRun = currentIndex !== -1;
-  const baseVersion =
-    currentIndex > 0
-      ? publishedVersions[currentIndex - 1]
-      : publishedInRun
-        ? null
-        : (publishedVersions.at(-1) ?? null);
-  const latestVersion = publishedInRun
-    ? params.currentReleaseVersion
-    : (publishedVersions.at(-1) ?? null);
-  const publishedMetadata = latestVersion
-    ? npmViewJson(`${params.publishedPackageName}@${latestVersion}`, params.packageRegistryUrl)
-    : null;
+  const latestPublishedMetadata = npmViewJson(
+    params.publishedPackageName,
+    params.packageRegistryUrl,
+  );
+  const latestVersion =
+    latestPublishedMetadata?.version?.trim() || (publishedVersions.at(-1) ?? null);
+  const latestIndex = latestVersion ? publishedVersions.lastIndexOf(latestVersion) : -1;
+  const publishedInRun = latestVersion === params.currentReleaseVersion;
+  const baseVersion = latestIndex > 0 ? publishedVersions[latestIndex - 1] : null;
   return {
     baseVersion,
     latestVersion,
     publishedInRun,
-    artifactUrl: publishedMetadata?.dist?.tarball?.trim() || null,
+    artifactUrl: latestPublishedMetadata?.dist?.tarball?.trim() || null,
     integrity:
-      publishedMetadata?.dist?.integrity?.trim() || publishedMetadata?.dist?.shasum?.trim() || null,
+      latestPublishedMetadata?.dist?.integrity?.trim() ||
+      latestPublishedMetadata?.dist?.shasum?.trim() ||
+      null,
   };
 }
 
