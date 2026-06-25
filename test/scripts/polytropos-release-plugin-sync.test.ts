@@ -23,9 +23,11 @@ import {
   ensureLegacyOpenClawPackageAlias,
   parseArgs,
   prepareInstallPackageInput,
+  resolveLatestRunIdForTagFromRuns,
   resolvePolytroposReleaseArtifacts,
   resolveReleaseCoreInstallPackagePath,
   resolveInstallPackageInput,
+  stageInventoryPackages,
   stageDownloadedReleaseTarball,
   updateReleasePointers,
 } from "../../scripts/polytropos-release.mjs";
@@ -159,6 +161,30 @@ describe("polytropos release helpers", () => {
       releaseTag: "v2026.6.1-poly.70",
       inventoryArtifact: "polytropos-package-inventory-v2026.6.1-poly.70",
     });
+  });
+
+  it("ignores older cancelled runs when the same tag is pushed again", () => {
+    expect(
+      resolveLatestRunIdForTagFromRuns(
+        [
+          {
+            databaseId: 28113554679,
+            headBranch: "v2026.6.1-poly.79",
+            status: "completed",
+            conclusion: "cancelled",
+            createdAt: "2026-06-24T16:08:50Z",
+          },
+          {
+            databaseId: 28116907652,
+            headBranch: "v2026.6.1-poly.79",
+            status: "completed",
+            conclusion: "success",
+            createdAt: "2026-06-24T17:24:31Z",
+          },
+        ],
+        "v2026.6.1-poly.79",
+      ),
+    ).toBe("28116907652");
   });
 
   it("creates a sanitized temporary config by deleting only session.reset", () => {
@@ -575,6 +601,68 @@ describe("polytropos release helpers", () => {
     }
   });
 
+  it("preserves previous.json when reinstalling the already-current inventory", () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-pointer-reinstall-test-"));
+    const relRoot = path.join(root, "releases");
+    fs.mkdirSync(relRoot, { recursive: true });
+    const previousStoredPath = path.join(relRoot, "v2026.6.1-poly.77.json");
+    const currentStoredPath = path.join(relRoot, "v2026.6.1-poly.79.json");
+    fs.writeFileSync(
+      previousStoredPath,
+      JSON.stringify({ releaseTag: "v2026.6.1-poly.77", packages: [] }),
+    );
+    fs.writeFileSync(
+      currentStoredPath,
+      JSON.stringify({ releaseTag: "v2026.6.1-poly.79", packages: [] }),
+    );
+    fs.symlinkSync(path.basename(previousStoredPath), path.join(relRoot, "previous.json"));
+    fs.symlinkSync(path.basename(currentStoredPath), path.join(relRoot, "current.json"));
+
+    try {
+      updateReleasePointers({
+        logStream: process.stdout,
+        relRoot,
+        inventoryPath: currentStoredPath,
+      });
+
+      expect(fs.realpathSync(path.join(relRoot, "current.json"))).toBe(currentStoredPath);
+      expect(fs.realpathSync(path.join(relRoot, "previous.json"))).toBe(previousStoredPath);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes stale current.tgz and previous.tgz pointers when refreshing inventory pointers", () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-pointer-cleanup-test-"));
+    const relRoot = path.join(root, "releases");
+    const packageRoot = path.join(relRoot, "packages");
+    const inventoryPath = path.join(relRoot, "v2026.6.1-poly.79.json");
+    const legacyTarget = path.join(packageRoot, "openclaw-2026.6.1-poly.75.tgz");
+    fs.mkdirSync(packageRoot, { recursive: true });
+    fs.writeFileSync(legacyTarget, "legacy\n");
+    fs.writeFileSync(
+      inventoryPath,
+      JSON.stringify({ releaseTag: "v2026.6.1-poly.79", packages: [] }),
+    );
+    fs.symlinkSync(path.relative(relRoot, legacyTarget), path.join(relRoot, "current.tgz"));
+    fs.symlinkSync(path.relative(relRoot, legacyTarget), path.join(relRoot, "previous.tgz"));
+
+    try {
+      updateReleasePointers({
+        logStream: process.stdout,
+        relRoot,
+        inventoryPath,
+      });
+
+      expect(fs.existsSync(path.join(relRoot, "current.tgz"))).toBe(false);
+      expect(fs.existsSync(path.join(relRoot, "previous.tgz"))).toBe(false);
+      expect(fs.realpathSync(path.join(relRoot, "current.json"))).toBe(inventoryPath);
+      expect(fs.realpathSync(path.join(relRoot, "previous.json"))).toBe(inventoryPath);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("resolves the core install package from authoritative inventory metadata", () => {
     const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-release-store-test-"));
     const relRoot = path.join(root, "releases");
@@ -753,6 +841,82 @@ describe("polytropos release helpers", () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("hydrates tracked plugin archives into releases/packages before install", async () => {
+    const relRoot = "/tmp/polytropos/releases";
+    const calls: Array<{
+      packageName: string;
+      registryPackageName: string | undefined;
+      version: string;
+      artifactUrl: string | null | undefined;
+    }> = [];
+
+    await stageInventoryPackages({
+      relRoot,
+      inventory: {
+        packages: [
+          {
+            packageName: "openclaw",
+            publishedPackageName: "@joshuacwebdeveloper/openclaw-polytropos-core",
+            packageType: "core",
+            latestVersion: "2026.6.1-poly.79",
+            artifactUrl:
+              "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-core/2026.6.1-poly.79/archive",
+          },
+          {
+            packageName: "@openclaw/codex",
+            publishedPackageName: "@joshuacwebdeveloper/openclaw-polytropos-codex",
+            packageType: "plugin",
+            latestVersion: "2026.6.1-poly.75",
+            artifactUrl:
+              "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-codex/2026.6.1-poly.75/archive",
+          },
+          {
+            packageName: "@openclaw/discord",
+            publishedPackageName: "@joshuacwebdeveloper/openclaw-polytropos-discord",
+            packageType: "plugin",
+            latestVersion: "2026.6.1-poly.75",
+            artifactUrl:
+              "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-discord/2026.6.1-poly.75/archive",
+          },
+        ],
+      },
+      logStream: process.stdout,
+      ensureStoredReleasePackageImpl: async (params) => {
+        calls.push({
+          packageName: params.packageName,
+          registryPackageName: params.registryPackageName,
+          version: params.version,
+          artifactUrl: params.artifactUrl,
+        });
+        return `/tmp/${params.packageName}-${params.version}.tgz`;
+      },
+    });
+
+    expect(calls).toEqual([
+      {
+        packageName: "openclaw",
+        registryPackageName: "@joshuacwebdeveloper/openclaw-polytropos-core",
+        version: "2026.6.1-poly.79",
+        artifactUrl:
+          "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-core/2026.6.1-poly.79/archive",
+      },
+      {
+        packageName: "@openclaw/codex",
+        registryPackageName: "@joshuacwebdeveloper/openclaw-polytropos-codex",
+        version: "2026.6.1-poly.75",
+        artifactUrl:
+          "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-codex/2026.6.1-poly.75/archive",
+      },
+      {
+        packageName: "@openclaw/discord",
+        registryPackageName: "@joshuacwebdeveloper/openclaw-polytropos-discord",
+        version: "2026.6.1-poly.75",
+        artifactUrl:
+          "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-discord/2026.6.1-poly.75/archive",
+      },
+    ]);
   });
 
   it("rejects inventory installs when the cached core package contents do not match the inventory version", () => {

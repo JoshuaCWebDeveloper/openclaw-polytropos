@@ -208,6 +208,39 @@ function readReleaseInventory(inventoryPath) {
   return parsed;
 }
 
+export async function stageInventoryPackages({
+  relRoot,
+  inventory,
+  logStream,
+  env = process.env,
+  ensureStoredReleasePackageImpl = ensureStoredReleasePackage,
+}) {
+  for (const entry of inventory.packages) {
+    if (
+      !entry ||
+      (entry.packageType !== "core" && entry.packageType !== "plugin") ||
+      typeof entry.packageName !== "string" ||
+      !entry.packageName.trim() ||
+      typeof entry.latestVersion !== "string" ||
+      !entry.latestVersion.trim()
+    ) {
+      continue;
+    }
+    await ensureStoredReleasePackageImpl({
+      relRoot,
+      packageName: entry.packageName,
+      registryPackageName: entry.publishedPackageName,
+      version: entry.latestVersion,
+      artifactUrl: entry.artifactUrl,
+      logger: {
+        info: (message) => banner(logStream, message),
+        warn: (message) => banner(logStream, message),
+      },
+      env,
+    });
+  }
+}
+
 function releaseTagFromInventoryPath(inventoryPath) {
   const baseName = path.basename(inventoryPath);
   const match = /^(v.+(?:\+|-)poly\.\d+)(?:\.package-inventory)?\.json$/u.exec(baseName);
@@ -333,6 +366,26 @@ async function shTee(logStream, cmd, args, opts = {}) {
   });
 }
 
+export function resolveLatestRunIdForTagFromRuns(runs, releaseTag) {
+  if (!Array.isArray(runs)) {
+    return "";
+  }
+  let bestId = null;
+  for (const run of runs) {
+    if (run?.headBranch !== releaseTag) {
+      continue;
+    }
+    const candidateId = Number(run?.databaseId);
+    if (!Number.isFinite(candidateId)) {
+      continue;
+    }
+    if (bestId == null || candidateId > bestId) {
+      bestId = candidateId;
+    }
+  }
+  return bestId == null ? "" : String(bestId);
+}
+
 function commandString(cmd, args) {
   return [cmd, ...args].join(" ");
 }
@@ -350,7 +403,7 @@ async function findRunIdForTag({ logStream, ghRepo, wf, releaseTag, timeoutMs = 
     attempt++;
     let runId = "";
     try {
-      runId = sh("gh", [
+      const raw = sh("gh", [
         "run",
         "list",
         "--repo",
@@ -362,11 +415,9 @@ async function findRunIdForTag({ logStream, ghRepo, wf, releaseTag, timeoutMs = 
         "--limit",
         "20",
         "--json",
-        "databaseId,headBranch",
-        "--jq",
-        // Only accept the tag push run (headBranch==releaseTag); otherwise return empty and retry
-        `.[] | select(.headBranch=="${releaseTag}") | .databaseId`,
+        "databaseId,headBranch,createdAt,status,conclusion",
       ]);
+      runId = resolveLatestRunIdForTagFromRuns(JSON.parse(raw), releaseTag);
     } catch {
       // ignore and retry
     }
@@ -945,6 +996,16 @@ function writeReleasePointer({ pointerPath, targetPath }) {
   fs.renameSync(tempPointerPath, pointerPath);
 }
 
+function removeLegacyReleasePointer({ logStream, relRoot, name }) {
+  const legacyPath = path.join(relRoot, name);
+  const stat = fs.lstatSync(legacyPath, { throwIfNoEntry: false });
+  if (!stat) {
+    return;
+  }
+  fs.rmSync(legacyPath, { force: true, recursive: true });
+  banner(logStream, `Removed legacy release tgz pointer: ${legacyPath}`);
+}
+
 export function updateReleasePointers({ logStream, relRoot, inventoryPath }) {
   const currentPath = path.join(relRoot, "current.json");
   const previousPath = path.join(relRoot, "previous.json");
@@ -960,11 +1021,22 @@ export function updateReleasePointers({ logStream, relRoot, inventoryPath }) {
     pointerPath: currentPath,
     label: `existing current release pointer ${currentPath}`,
   });
+  const storedExistingPreviousInventoryPath = resolveExistingPointerTarget({
+    logStream,
+    relRoot,
+    pointerPath: previousPath,
+    label: `existing previous release pointer ${previousPath}`,
+  });
 
-  if (storedPreviousInventoryPath) {
+  if (storedPreviousInventoryPath && storedPreviousInventoryPath !== storedCurrentInventoryPath) {
     writeReleasePointer({
       pointerPath: previousPath,
       targetPath: storedPreviousInventoryPath,
+    });
+  } else if (storedExistingPreviousInventoryPath) {
+    writeReleasePointer({
+      pointerPath: previousPath,
+      targetPath: storedExistingPreviousInventoryPath,
     });
   } else {
     writeReleasePointer({
@@ -976,6 +1048,8 @@ export function updateReleasePointers({ logStream, relRoot, inventoryPath }) {
     pointerPath: currentPath,
     targetPath: storedCurrentInventoryPath,
   });
+  removeLegacyReleasePointer({ logStream, relRoot, name: "current.tgz" });
+  removeLegacyReleasePointer({ logStream, relRoot, name: "previous.tgz" });
   banner(logStream, `Updated release inventory pointers: ${currentPath}, ${previousPath}`);
 }
 
@@ -1310,20 +1384,16 @@ async function main(argv = process.argv) {
         );
       }
 
-      const coreEntry = resolveCoreInventoryEntry(
-        readReleaseInventory(stagedInventoryPath),
-        stagedInventoryPath,
-      );
-      const tarPath = await ensureStoredReleasePackage({
+      const stagedInventory = readReleaseInventory(stagedInventoryPath);
+      await stageInventoryPackages({
         relRoot,
+        inventory: stagedInventory,
+        logStream,
+      });
+      const coreEntry = resolveCoreInventoryEntry(stagedInventory, stagedInventoryPath);
+      const tarPath = resolveStoredReleasePackagePath(relRoot, {
         packageName: coreEntry.packageName,
-        registryPackageName: coreEntry.publishedPackageName,
         version: coreEntry.latestVersion,
-        artifactUrl: coreEntry.artifactUrl,
-        logger: {
-          info: (message) => banner(logStream, message),
-          warn: (message) => banner(logStream, message),
-        },
       });
       const info = tgzInternalVersion(tarPath);
       if (!isPolytroposCorePackageName(info.name)) {
