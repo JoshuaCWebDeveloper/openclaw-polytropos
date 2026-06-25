@@ -398,14 +398,36 @@ export async function repairOpenClawPeerLinksForReleaseInstall(params: {
 }
 
 async function main() {
-  const installedRoot = process.argv[2];
-  const baseRef = process.argv[3];
-  const headRef = process.argv[4];
+  const args = process.argv.slice(2);
+  const installedRoot = args[0];
+  let baseRef: string | undefined;
+  let headRef: string | undefined;
   const repoRoot = process.cwd();
   if (!installedRoot) {
     throw new Error(
-      "Usage: tsx scripts/polytropos-release-plugin-sync.ts <installed-openclaw-root> [baseRef headRef]",
+      "Usage: tsx scripts/polytropos-release-plugin-sync.ts <installed-openclaw-root> [--head-ref <ref>] [--base-ref <ref>]",
     );
+  }
+  for (let i = 1; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--head-ref") {
+      headRef = args[++i];
+      if (!headRef) {
+        throw new Error("--head-ref requires a value");
+      }
+      continue;
+    }
+    if (arg === "--base-ref") {
+      baseRef = args[++i];
+      if (!baseRef) {
+        throw new Error("--base-ref requires a value");
+      }
+      continue;
+    }
+    throw new Error(`Unknown argument: ${arg}`);
+  }
+  if (baseRef && !headRef) {
+    throw new Error("--base-ref requires --head-ref");
   }
 
   const gatewayVersion = await readPackageVersion(installedRoot);

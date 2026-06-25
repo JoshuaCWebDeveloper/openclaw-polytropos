@@ -83,6 +83,24 @@ describe("polytropos release helpers", () => {
     });
   });
 
+  it("parses install commands with only --head-ref for inventory-driven plugin sync", () => {
+    expect(
+      parseArgs([
+        "node",
+        "scripts/polytropos-release.mjs",
+        "install",
+        "/tmp/polytropos/releases/v2026.6.1-poly.79.json",
+        "--head-ref",
+        "v2026.6.1-poly.79",
+      ]),
+    ).toMatchObject({
+      cmd: "install",
+      installTgz: "/tmp/polytropos/releases/v2026.6.1-poly.79.json",
+      baseRef: null,
+      headRef: "v2026.6.1-poly.79",
+    });
+  });
+
   it("passes explicit sanitized config mode through delegated install commands", () => {
     const repoRoot = "/work/openclaw";
     expect(
@@ -979,8 +997,31 @@ describe("polytropos release helpers", () => {
       args: [
         path.join(repoRoot, "scripts", "polytropos-release-plugin-sync.ts"),
         installedRoot,
-        "v2026.6.1+poly.52",
+        "--head-ref",
         "v2026.6.1+poly.53",
+        "--base-ref",
+        "v2026.6.1+poly.52",
+      ],
+      cwd: repoRoot,
+    });
+  });
+
+  it("runs inventory-backed plugin sync with just the current release tag", () => {
+    const repoRoot = "/work/openclaw";
+    const installedRoot = "/tmp/npm-prefix/lib/node_modules/openclaw";
+    expect(
+      buildPostInstallPluginSyncCommand({
+        repoRoot,
+        installedRoot,
+        headRef: "v2026.6.1-poly.79",
+      }),
+    ).toEqual({
+      cmd: path.join(repoRoot, "node_modules", ".bin", "tsx"),
+      args: [
+        path.join(repoRoot, "scripts", "polytropos-release-plugin-sync.ts"),
+        installedRoot,
+        "--head-ref",
+        "v2026.6.1-poly.79",
       ],
       cwd: repoRoot,
     });

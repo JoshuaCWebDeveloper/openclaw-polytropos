@@ -699,8 +699,8 @@ export function parseArgs(argv) {
     fail(`unknown argument: ${a}`);
   }
 
-  if ((baseRef && !headRef) || (!baseRef && headRef)) {
-    fail("install requires both --base-ref and --head-ref together");
+  if (baseRef && !headRef) {
+    fail("install requires --head-ref when --base-ref is provided");
   }
   if (runId && !releaseTag) {
     fail("release with --run-id requires --tag so artifact names stay explicit");
@@ -730,7 +730,7 @@ function usage() {
 
 Usage:
   node scripts/polytropos-release.mjs release [--tag v<ver>-poly.<N>] [--run-id <id> [--rerun-run]] [--repo <owner/repo>] [--workflow <workflow.yml>] [--log <path>]
-  node scripts/polytropos-release.mjs install <tgz-or-inventory-json> [--base-ref <ref> --head-ref <ref>] [--plugin-sync-config auto|normal|sanitized-temp] [--log <path>]
+  node scripts/polytropos-release.mjs install <tgz-or-inventory-json> [--head-ref <ref>] [--base-ref <ref>] [--plugin-sync-config auto|normal|sanitized-temp] [--log <path>]
 
 Behavior (single flow):
   - Pushes the release tag to GitHub, unless --run-id reuses an existing tag run
@@ -1131,8 +1131,7 @@ async function runInstall({
     fail(`unexpected package name in install tgz: ${info.name}`);
   }
   const effectiveHeadRef = headRef ?? installInput.releaseTag ?? null;
-  const effectiveBaseRef =
-    baseRef ?? (effectiveHeadRef ? findPreviousReleaseTag(effectiveHeadRef) : null);
+  const effectiveBaseRef = baseRef ?? null;
   const effectiveInventoryPath =
     inventoryPath ??
     installInput.inventoryPath ??
