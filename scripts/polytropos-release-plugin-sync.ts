@@ -36,7 +36,6 @@ type PackageInventoryEntry = {
   changed: boolean;
   artifactUrl: string | null;
   integrity: string | null;
-  extensionId?: string;
   publishedPackageName?: string;
 };
 
@@ -70,7 +69,7 @@ export type ReleasePluginSyncTarget = {
   pluginId: string;
   packageName: string;
   registryPackageName: string;
-  installedVersion: string | null;
+  installedVersion: string;
   releaseVersion: string;
   specOverride: string;
   artifactUrl?: string;
@@ -131,32 +130,35 @@ export function resolveReleaseManagedNpmPluginTargets(params: {
       (entry): entry is PackageInventoryEntry =>
         entry.packageType === "plugin" &&
         typeof entry.packageName === "string" &&
-        typeof entry.extensionId === "string" &&
-        entry.extensionId.trim().length > 0 &&
         typeof entry.latestVersion === "string" &&
         entry.latestVersion.trim().length > 0,
     ) ?? [];
 
   if (inventoryPackages.length > 0) {
-    const installRecordEntries = Object.entries(params.installRecords).filter(
-      ([, record]) => record?.source === "npm",
+    const packageByName = new Map(
+      inventoryPackages.map((entry) => [entry.packageName, entry] as const),
     );
-    const installRecordByPluginId = new Map(installRecordEntries);
     const targets: ReleasePluginSyncTarget[] = [];
-    for (const entry of inventoryPackages) {
-      if (!entry.artifactUrl || !entry.latestVersion) {
+    for (const [pluginId, record] of Object.entries(params.installRecords)) {
+      if (record?.source !== "npm") {
         continue;
       }
-      const pluginId = entry.extensionId!.trim();
-      const record = installRecordByPluginId.get(pluginId);
-      const installedVersion = record ? (record.resolvedVersion ?? record.version ?? null) : null;
+      const packageName = extractInstalledNpmPackageName(record);
+      const installedVersion = record.resolvedVersion ?? record.version;
+      if (!packageName || !installedVersion) {
+        continue;
+      }
+      const entry = packageByName.get(packageName);
+      if (!entry?.artifactUrl || !entry.latestVersion) {
+        continue;
+      }
       targets.push({
         pluginId,
-        packageName: entry.packageName,
-        registryPackageName: entry.publishedPackageName?.trim() || entry.packageName,
+        packageName,
+        registryPackageName: entry.publishedPackageName?.trim() || packageName,
         installedVersion,
         releaseVersion: entry.latestVersion,
-        specOverride: `${entry.packageName}@${entry.latestVersion}`,
+        specOverride: `${packageName}@${entry.latestVersion}`,
         artifactUrl: entry.artifactUrl,
         integrity: entry.integrity,
       });
@@ -266,7 +268,7 @@ async function installPluginTargetsFromInventory(params: {
         : undefined;
       const result = await installPluginFromArchive({
         archivePath: stagedArtifactPath,
-        mode: existingRecord ? "update" : "install",
+        mode: "update",
         expectedPluginId: target.pluginId,
         trustedSourceLinkedOfficialInstall: true,
         ...(extensionsDir ? { extensionsDir } : {}),
@@ -298,7 +300,7 @@ async function installPluginTargetsFromInventory(params: {
       outcomes.push({
         pluginId: target.pluginId,
         status: "updated",
-        message: `${existingRecord ? "Updated" : "Installed"} ${target.pluginId}: ${target.installedVersion ?? "<missing>"} -> ${target.releaseVersion}.`,
+        message: `Updated ${target.pluginId}: ${target.installedVersion} -> ${target.releaseVersion}.`,
       });
     } catch (error) {
       outcomes.push({

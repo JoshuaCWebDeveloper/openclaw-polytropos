@@ -13,6 +13,7 @@ import {
 } from "./installed-plugin-index-record-cache.js";
 import {
   resolveInstalledPluginIndexStorePath,
+  resolveLegacyInstalledPluginIndexStorePath,
   type InstalledPluginIndexStoreOptions,
 } from "./installed-plugin-index-store-path.js";
 import { listManagedPluginNpmProjectRootsSync } from "./npm-project-roots.js";
@@ -240,6 +241,48 @@ function extractPluginInstallRecordsFromPersistedInstalledPluginIndex(
   return records;
 }
 
+function mergeSupplementalInstallRecords(params: {
+  base: Record<string, PluginInstallRecord> | null;
+  supplemental: Record<string, PluginInstallRecord> | null;
+}): Record<string, PluginInstallRecord> | null {
+  if (!params.base && !params.supplemental) {
+    return null;
+  }
+  if (!params.base) {
+    return cloneInstallRecords(params.supplemental);
+  }
+  if (!params.supplemental) {
+    return cloneInstallRecords(params.base);
+  }
+  const merged = cloneInstallRecords(params.base);
+  for (const [pluginId, record] of Object.entries(params.supplemental)) {
+    if (!merged[pluginId]) {
+      merged[pluginId] = structuredClone(record);
+    }
+  }
+  return merged;
+}
+
+function readLegacyInstalledPluginIndexArchiveInstallRecords(
+  options: InstalledPluginIndexStoreOptions = {},
+): Record<string, PluginInstallRecord> | null {
+  if (options.filePath) {
+    return null;
+  }
+  const legacyPath = resolveLegacyInstalledPluginIndexStorePath(options);
+  const candidatePaths = [legacyPath, `${legacyPath}.migrated`];
+  let merged: Record<string, PluginInstallRecord> | null = null;
+  for (const candidatePath of candidatePaths) {
+    if (!fs.existsSync(candidatePath)) {
+      continue;
+    }
+    const parsed = tryReadJsonSync(candidatePath);
+    const records = extractPluginInstallRecordsFromPersistedInstalledPluginIndex(parsed);
+    merged = mergeSupplementalInstallRecords({ base: merged, supplemental: records });
+  }
+  return merged;
+}
+
 type InstalledPluginIndexRecordRow = {
   install_records_json: string;
   plugins_json: string;
@@ -310,14 +353,20 @@ export async function readPersistedInstalledPluginIndexInstallRecords(
   options: InstalledPluginIndexStoreOptions = {},
 ): Promise<Record<string, PluginInstallRecord> | null> {
   const parsed = readPersistedInstalledPluginIndexForRecords(options);
-  return extractPluginInstallRecordsFromPersistedInstalledPluginIndex(parsed);
+  return mergeSupplementalInstallRecords({
+    base: extractPluginInstallRecordsFromPersistedInstalledPluginIndex(parsed),
+    supplemental: readLegacyInstalledPluginIndexArchiveInstallRecords(options),
+  });
 }
 
 export function readPersistedInstalledPluginIndexInstallRecordsSync(
   options: InstalledPluginIndexStoreOptions = {},
 ): Record<string, PluginInstallRecord> | null {
   const parsed = readPersistedInstalledPluginIndexForRecords(options);
-  return extractPluginInstallRecordsFromPersistedInstalledPluginIndex(parsed);
+  return mergeSupplementalInstallRecords({
+    base: extractPluginInstallRecordsFromPersistedInstalledPluginIndex(parsed),
+    supplemental: readLegacyInstalledPluginIndexArchiveInstallRecords(options),
+  });
 }
 
 function resolveInstallRecordsCacheKey(options: InstalledPluginIndexStoreOptions): string {

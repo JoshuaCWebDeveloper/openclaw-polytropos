@@ -1078,7 +1078,6 @@ describe("polytropos release helpers", () => {
             packageType: "plugin",
             latestVersion: "2026.6.1-poly.69",
             changed: true,
-            extensionId: "codex",
             artifactUrl:
               "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-codex/2026.6.1-poly.69/archive",
             integrity: "sha512-test",
@@ -1103,10 +1102,17 @@ describe("polytropos release helpers", () => {
     ]);
   });
 
-  it("targets inventory plugins for install even when no npm install record exists yet", () => {
+  it("targets installed plugins from inventory even when the package was unchanged in the release", () => {
     const targets = resolveReleaseManagedNpmPluginTargets({
       repoRoot: process.cwd(),
-      installRecords: {},
+      installRecords: {
+        codex: {
+          source: "npm",
+          spec: "npm:@openclaw/codex",
+          resolvedName: "@openclaw/codex",
+          resolvedVersion: "2026.6.1-poly.73",
+        },
+      },
       inventory: {
         packages: [
           {
@@ -1114,7 +1120,6 @@ describe("polytropos release helpers", () => {
             packageType: "plugin",
             latestVersion: "2026.6.1-poly.79",
             changed: false,
-            extensionId: "codex",
             artifactUrl:
               "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-codex/2026.6.1-poly.79/archive",
             integrity: "sha512-test",
@@ -1129,7 +1134,7 @@ describe("polytropos release helpers", () => {
         pluginId: "codex",
         packageName: "@openclaw/codex",
         registryPackageName: "@joshuacwebdeveloper/openclaw-polytropos-codex",
-        installedVersion: null,
+        installedVersion: "2026.6.1-poly.73",
         releaseVersion: "2026.6.1-poly.79",
         specOverride: "@openclaw/codex@2026.6.1-poly.79",
         artifactUrl:
