@@ -1078,6 +1078,7 @@ describe("polytropos release helpers", () => {
             packageType: "plugin",
             latestVersion: "2026.6.1-poly.69",
             changed: true,
+            extensionId: "codex",
             artifactUrl:
               "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-codex/2026.6.1-poly.69/archive",
             integrity: "sha512-test",
@@ -1097,6 +1098,42 @@ describe("polytropos release helpers", () => {
         specOverride: "@openclaw/codex@2026.6.1-poly.69",
         artifactUrl:
           "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-codex/2026.6.1-poly.69/archive",
+        integrity: "sha512-test",
+      },
+    ]);
+  });
+
+  it("targets inventory plugins for install even when no npm install record exists yet", () => {
+    const targets = resolveReleaseManagedNpmPluginTargets({
+      repoRoot: process.cwd(),
+      installRecords: {},
+      inventory: {
+        packages: [
+          {
+            packageName: "@openclaw/codex",
+            packageType: "plugin",
+            latestVersion: "2026.6.1-poly.79",
+            changed: false,
+            extensionId: "codex",
+            artifactUrl:
+              "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-codex/2026.6.1-poly.79/archive",
+            integrity: "sha512-test",
+            publishedPackageName: "@joshuacwebdeveloper/openclaw-polytropos-codex",
+          },
+        ],
+      },
+    });
+
+    expect(targets).toEqual([
+      {
+        pluginId: "codex",
+        packageName: "@openclaw/codex",
+        registryPackageName: "@joshuacwebdeveloper/openclaw-polytropos-codex",
+        installedVersion: null,
+        releaseVersion: "2026.6.1-poly.79",
+        specOverride: "@openclaw/codex@2026.6.1-poly.79",
+        artifactUrl:
+          "https://npm.pkg.github.com/download/@joshuacwebdeveloper/openclaw-polytropos-codex/2026.6.1-poly.79/archive",
         integrity: "sha512-test",
       },
     ]);
