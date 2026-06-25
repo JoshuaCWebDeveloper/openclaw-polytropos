@@ -271,9 +271,12 @@ describe("polytropos release helpers", () => {
     expect(
       resolveStoredReleasePackagePath(relRoot, {
         packageName: "@openclaw/codex",
+        registryPackageName: "@joshuacwebdeveloper/openclaw-polytropos-codex",
         version: "2026.6.1-poly.71",
       }),
-    ).toBe("/tmp/polytropos/releases/packages/openclaw-codex-2026.6.1-poly.71.tgz");
+    ).toBe(
+      "/tmp/polytropos/releases/packages/joshuacwebdeveloper-openclaw-polytropos-codex-2026.6.1-poly.71.tgz",
+    );
   });
 
   it("reuses an already-downloaded local release package", async () => {
@@ -281,6 +284,7 @@ describe("polytropos release helpers", () => {
     const relRoot = path.join(root, "releases");
     const storedPath = resolveStoredReleasePackagePath(relRoot, {
       packageName: "@openclaw/codex",
+      registryPackageName: "@scope/openclaw-polytropos-codex",
       version: "2026.6.1-poly.71",
     });
     fs.mkdirSync(path.dirname(storedPath), { recursive: true });
@@ -316,6 +320,7 @@ describe("polytropos release helpers", () => {
     const relRoot = path.join(root, "releases");
     const storedPath = resolveStoredReleasePackagePath(relRoot, {
       packageName: "openclaw",
+      registryPackageName: "@joshuacwebdeveloper/openclaw-polytropos-core",
       version: "2026.6.1-poly.71",
     });
     const corruptTgz = createTestOpenClawTgz(root, "2026.6.1", "corrupt");
@@ -382,6 +387,7 @@ describe("polytropos release helpers", () => {
       ).resolves.toBe(
         resolveStoredReleasePackagePath(relRoot, {
           packageName: "openclaw",
+          registryPackageName: "@joshuacwebdeveloper/openclaw-polytropos-core",
           version: "2026.6.1-poly.73",
         }),
       );

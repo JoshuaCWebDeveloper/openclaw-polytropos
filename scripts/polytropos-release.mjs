@@ -819,6 +819,7 @@ export function resolveReleaseCoreInstallPackagePath({ relRoot, releaseTag }) {
   const coreEntry = resolveCoreInventoryEntry(readReleaseInventory(inventoryPath), inventoryPath);
   const packagePath = resolveStoredReleasePackagePath(relRoot, {
     packageName: coreEntry.packageName,
+    registryPackageName: coreEntry.publishedPackageName,
     version: coreEntry.latestVersion,
   });
   if (!fs.existsSync(packagePath)) {
@@ -853,6 +854,7 @@ export function resolveInstallPackageInput(inputPath) {
   const relRoot = path.dirname(resolvedInputPath);
   const packagePath = resolveStoredReleasePackagePath(relRoot, {
     packageName: coreEntry.packageName,
+    registryPackageName: coreEntry.publishedPackageName,
     version: coreEntry.latestVersion,
   });
   if (!fs.existsSync(packagePath)) {
@@ -890,6 +892,7 @@ export async function prepareInstallPackageInput(
   const relRoot = path.dirname(resolvedInputPath);
   let packagePath = resolveStoredReleasePackagePath(relRoot, {
     packageName: coreEntry.packageName,
+    registryPackageName: coreEntry.publishedPackageName,
     version: coreEntry.latestVersion,
   });
   if (!fs.existsSync(packagePath)) {
@@ -1394,6 +1397,7 @@ async function main(argv = process.argv) {
       const coreEntry = resolveCoreInventoryEntry(stagedInventory, stagedInventoryPath);
       const tarPath = resolveStoredReleasePackagePath(relRoot, {
         packageName: coreEntry.packageName,
+        registryPackageName: coreEntry.publishedPackageName,
         version: coreEntry.latestVersion,
       });
       const info = tgzInternalVersion(tarPath);
