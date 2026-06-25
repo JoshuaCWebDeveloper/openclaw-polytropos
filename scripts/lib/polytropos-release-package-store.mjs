@@ -67,8 +67,11 @@ export function resolvePackageReleaseStoreDir(relRoot) {
   return path.join(relRoot, "packages");
 }
 
-export function resolveStoredReleasePackagePath(relRoot, { packageName, version }) {
-  const safePackage = sanitizePackageSegment(packageName);
+export function resolveStoredReleasePackagePath(
+  relRoot,
+  { packageName, registryPackageName, version },
+) {
+  const safePackage = sanitizePackageSegment(registryPackageName || packageName);
   const safeVersion = sanitizePackageSegment(version);
   return path.join(resolvePackageReleaseStoreDir(relRoot), `${safePackage}-${safeVersion}.tgz`);
 }
@@ -188,6 +191,7 @@ export async function ensureStoredReleasePackage({
 }) {
   const storedPath = resolveStoredReleasePackagePath(relRoot, {
     packageName,
+    registryPackageName,
     version,
   });
   if (fs.existsSync(storedPath)) {
