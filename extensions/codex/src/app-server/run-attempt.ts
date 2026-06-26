@@ -813,18 +813,19 @@ export async function runCodexAppServerAttempt(
         workspaceBootstrapContext.heartbeatCollaborationInstructions,
     }).settings.developer_instructions ?? undefined;
   const resolveCodexTurnCollaborationDeveloperInstructions = async () => {
-    const baseDeveloperInstructions = buildBaseCodexTurnCollaborationDeveloperInstructions();
+    const baseCollaborationDeveloperInstructions =
+      buildBaseCodexTurnCollaborationDeveloperInstructions();
     if (!hookRunner?.hasHooks("before_turn_developer_instructions")) {
-      return baseDeveloperInstructions;
+      return baseCollaborationDeveloperInstructions;
     }
     const result = await hookRunner.runBeforeTurnDeveloperInstructions(
       {
-        developerInstructions: baseDeveloperInstructions ?? "",
+        developerInstructions: baseCollaborationDeveloperInstructions ?? "",
       },
       hookContext,
     );
     if (!result) {
-      return baseDeveloperInstructions;
+      return baseCollaborationDeveloperInstructions;
     }
     const defaultCollaborationInstructions =
       typeof result.developerInstructions === "string" ||
@@ -833,7 +834,7 @@ export async function runCodexAppServerAttempt(
         ? undefined
         : buildDefaultCollaborationInstructions();
     const effectiveBaseDeveloperInstructions =
-      baseDeveloperInstructions ?? defaultCollaborationInstructions;
+      baseCollaborationDeveloperInstructions ?? defaultCollaborationInstructions;
     const nextDeveloperInstructions =
       typeof result.developerInstructions === "string"
         ? result.developerInstructions
