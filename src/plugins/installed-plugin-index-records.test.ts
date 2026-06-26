@@ -20,7 +20,10 @@ import {
   writePersistedInstalledPluginIndexInstallRecords,
   writePersistedInstalledPluginIndexInstallRecordsSync,
 } from "./installed-plugin-index-records.js";
-import { readPersistedInstalledPluginIndex } from "./installed-plugin-index-store.js";
+import {
+  readPersistedInstalledPluginIndex,
+  resolveLegacyInstalledPluginIndexStorePath,
+} from "./installed-plugin-index-store.js";
 import { writeManagedNpmPlugin } from "./test-helpers/managed-npm-plugin.js";
 
 const tempDirs: string[] = [];
@@ -378,6 +381,62 @@ describe("plugin index install records store", () => {
       spec: "@openclaw/discord@2026.5.2",
       installPath: discordDir,
       version: "2026.5.2",
+    });
+  });
+
+  it("recovers legacy archived install records when modern plugin index state is missing", async () => {
+    const stateDir = makeStateDir();
+    const legacyPath = resolveLegacyInstalledPluginIndexStorePath({ stateDir });
+    fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    fs.writeFileSync(
+      `${legacyPath}.migrated`,
+      JSON.stringify(
+        {
+          version: 1,
+          migrationVersion: 1,
+          hostContractVersion: "legacy",
+          compatRegistryVersion: "legacy",
+          policyHash: "legacy",
+          generatedAtMs: 0,
+          installRecords: {
+            codex: {
+              source: "npm",
+              spec: "@openclaw/codex",
+              installPath: path.join(stateDir, "npm", "node_modules", "@openclaw", "codex"),
+              resolvedName: "@openclaw/codex",
+              resolvedVersion: "2026.5.18",
+              resolvedSpec: "@openclaw/codex@2026.5.18",
+            },
+          },
+          plugins: [],
+          diagnostics: [],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    await expect(loadInstalledPluginIndexInstallRecords({ stateDir })).resolves.toEqual({
+      codex: {
+        source: "npm",
+        spec: "@openclaw/codex",
+        installPath: path.join(stateDir, "npm", "node_modules", "@openclaw", "codex"),
+        resolvedName: "@openclaw/codex",
+        resolvedVersion: "2026.5.18",
+        resolvedSpec: "@openclaw/codex@2026.5.18",
+      },
+    });
+
+    expect(loadInstalledPluginIndexInstallRecordsSync({ stateDir })).toEqual({
+      codex: {
+        source: "npm",
+        spec: "@openclaw/codex",
+        installPath: path.join(stateDir, "npm", "node_modules", "@openclaw", "codex"),
+        resolvedName: "@openclaw/codex",
+        resolvedVersion: "2026.5.18",
+        resolvedSpec: "@openclaw/codex@2026.5.18",
+      },
     });
   });
 

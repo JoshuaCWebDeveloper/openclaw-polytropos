@@ -34,5 +34,5 @@ git merge origin/master
 
 Once the release branch builds cleanly and behaves correctly:
 
-- use the core release procedure to cut the next `vYYYY.M.D+poly.N` tag
-- stage/install that release from the same release branch
+- use the core release procedure to cut the next `vYYYY.M.D-poly.N` tag
+- stage/install from that release inventory, reusing any matching package archives already stored under `~/polytropos/releases/packages/`

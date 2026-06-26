@@ -3,23 +3,73 @@ name: Polytropos Build + Pack
 on:
   workflow_dispatch:
   push:
-    branches:
-      - "release/*"
     tags:
-      - "v*poly.*"
+      - "v*-poly.*"
+
 permissions:
   contents: read
+  packages: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   NODE_OPTIONS: "--max-old-space-size=6144"
   OPENCLAW_TSDOWN_NODE_OPTIONS: "--max-old-space-size=6144"
   NODE_VERSION: "24.15.0"
-  PNPM_VERSION: "11.0.8"
+  POLYTROPOS_PACKAGE_INVENTORY_ARTIFACT: polytropos-package-inventory
+  POLYTROPOS_GITHUB_PACKAGES_REGISTRY: https://npm.pkg.github.com
 
 jobs:
+  resolve_release_target:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    outputs:
+      should_run: ${{ steps.validate.outputs.should_run }}
+      release_tag: ${{ steps.validate.outputs.release_tag }}
+      expected_branch: ${{ steps.validate.outputs.expected_branch }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag branch ancestry
+        id: validate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          release_tag="${REF_NAME}"
+          if [[ ! "${release_tag}" =~ ^v([0-9]{4}\.[0-9]+\.[0-9]+)-poly\.[0-9]+$ ]]; then
+            echo "Tag ${release_tag} does not match the Polytropos release format; skipping build."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          version="${BASH_REMATCH[1]}"
+          expected_branch="release/${version}"
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "expected_branch=${expected_branch}" >> "$GITHUB_OUTPUT"
+
+          git fetch --no-tags origin "+refs/heads/${expected_branch}:refs/remotes/origin/${expected_branch}"
+          tag_sha="$(git rev-list -n 1 "${release_tag}")"
+          if git merge-base --is-ancestor "${tag_sha}" "refs/remotes/origin/${expected_branch}"; then
+            echo "Tag ${release_tag} resolves to ${tag_sha} and is reachable from ${expected_branch}."
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag ${release_tag} resolves to ${tag_sha} but is not reachable from ${expected_branch}; skipping build."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build_pack:
-    if: startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/v')
+    needs: resolve_release_target
+    if: needs.resolve_release_target.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -34,6 +84,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           install-bun: "false"
+          install-deps: "false"
 
       - name: Runner resources
         run: |
@@ -48,9 +99,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm build
+        env:
+          OPENCLAW_BUILD_ALL_NO_PNPM: "1"
+        run: node scripts/build-all.mjs ciArtifacts
 
       - name: Build Control UI
+        env:
+          OPENCLAW_BUILD_ALL_NO_PNPM: "1"
         run: pnpm ui:build
       - name: Compute artifact tag
         run: |
@@ -61,6 +116,8 @@ jobs:
           fi
       - name: Pack
         id: pack
+        env:
+          OPENCLAW_PREPACK_USE_PREPARED_ARTIFACTS: "1"
         run: |
           set -euo pipefail
           pkg=$(node -p "require('./package.json').name")
@@ -74,13 +131,175 @@ jobs:
           ls -la "$tgz"
       - name: Write build metadata
         run: |
-          node -e "const fs=require(\"fs\"); const pkg=require(\"./package.json\"); fs.writeFileSync(\"build-metadata.json\", JSON.stringify({name:pkg.name, version:pkg.version, sha:process.env.GITHUB_SHA, node:process.version, node_options:process.env.NODE_OPTIONS, pnpm:process.env.PNPM_VERSION, releaseTag: process.env.RELEASE_TAG || null}, null, 2));"
-      - name: Upload package artifact
+          PNPM_VERSION="$(pnpm -v)" node -e "const fs=require(\"fs\"); const pkg=require(\"./package.json\"); fs.writeFileSync(\"build-metadata.json\", JSON.stringify({name:pkg.name, version:pkg.version, sha:process.env.GITHUB_SHA, node:process.version, node_options:process.env.NODE_OPTIONS, pnpm:process.env.PNPM_VERSION, releaseTag: process.env.RELEASE_TAG || null}, null, 2));"
+      - name: Configure GitHub Packages npm auth
+        if: github.ref_type == 'tag'
+        id: github_packages_auth
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          package_scope="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          {
+            printf '@%s:registry=%s\n' "${package_scope}" "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
+            printf '//npm.pkg.github.com/:_authToken=%s\n' "${NODE_AUTH_TOKEN}"
+            printf 'always-auth=true\n'
+          } > "${HOME}/.npmrc"
+          echo "package_scope=${package_scope}" >> "$GITHUB_OUTPUT"
+      - name: Resolve release package version
+        if: github.ref_type == 'tag'
+        id: release_package_version
+        run: |
+          set -euo pipefail
+          release_package_version="$(
+            node --import tsx -e 'import { resolvePolytroposPackageVersionFromReleaseTag } from "./scripts/lib/polytropos-github-packages.ts"; process.stdout.write(resolvePolytroposPackageVersionFromReleaseTag(process.argv[1]));' \
+              "${RELEASE_TAG}"
+          )"
+          echo "release_package_version=${release_package_version}" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_PACKAGE_VERSION=${release_package_version}" >> "$GITHUB_ENV"
+      - name: Prepare core GitHub Packages tarball
+        if: github.ref_type == 'tag'
+        id: prepare_core_github_package
+        run: |
+          set -euo pipefail
+          mkdir -p .local/github-packages
+          published_name="@${{ steps.github_packages_auth.outputs.package_scope }}/openclaw-polytropos-core"
+          output_tgz=".local/github-packages/$(basename "${{ steps.pack.outputs.tgz }}")"
+          node scripts/polytropos-prepare-github-package-tarball.mjs \
+            --input "${{ steps.pack.outputs.tgz }}" \
+            --output "${output_tgz}" \
+            --published-name "${published_name}" \
+            --published-version "${RELEASE_PACKAGE_VERSION}" \
+            --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git"
+          echo "published_name=${published_name}" >> "$GITHUB_OUTPUT"
+          echo "tgz=${output_tgz}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish core GitHub Package
+        if: github.ref_type == 'tag'
+        env:
+          PACKAGE_NAME: ${{ steps.prepare_core_github_package.outputs.published_name }}
+          PACKAGE_VERSION: ${{ env.RELEASE_PACKAGE_VERSION }}
+        run: |
+          set -euo pipefail
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already published to GitHub Packages."
+            exit 0
+          fi
+          npm publish "${{ steps.prepare_core_github_package.outputs.tgz }}" --tag latest --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
+
+      - name: Generate tracked package release plan
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          mkdir -p .local
+          previous_release_tag="$(git tag -l 'v*-poly.*' | grep -Fxv "${RELEASE_TAG}" | sort -V | tail -n 1 || true)"
+          plan_args=(
+            --tracked-packages-file .github/polytropos-tracked-packages.json
+            --output .local/polytropos-release-plan.json
+            --github-package-scope "${{ steps.github_packages_auth.outputs.package_scope }}"
+          )
+          if [ -n "${previous_release_tag}" ]; then
+            plan_args+=(--base-ref "${previous_release_tag}" --head-ref "${RELEASE_TAG}")
+          fi
+          node --import tsx scripts/polytropos-release-plan.ts "${plan_args[@]}"
+
+      - name: Publish tracked plugin GitHub Packages
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          plugin_pack_dir="${GITHUB_WORKSPACE}/.local/plugin-packages"
+          mkdir -p "${plugin_pack_dir}" .local/github-packages
+          while IFS= read -r entry; do
+            package_name="$(jq -r '.packageName' <<<"${entry}")"
+            should_publish="$(jq -r '.shouldPublish' <<<"${entry}")"
+            if [ "${should_publish}" != "true" ]; then
+              echo "Skipping unchanged plugin package ${package_name}."
+              continue
+            fi
+            extension_id="$(jq -r '.extensionId' <<<"${entry}")"
+            published_name="$(jq -r '.publishedPackageName' <<<"${entry}")"
+            package_dir="extensions/${extension_id}"
+            echo "Publishing ${package_name} from ${package_dir}"
+            node scripts/lib/plugin-npm-runtime-build.mjs "${package_dir}"
+            tgz="$(
+              OPENCLAW_PLUGIN_NPM_BUNDLE_DEPENDENCIES=1 \
+                node scripts/lib/plugin-npm-package-manifest.mjs --run "${package_dir}" -- \
+                npm pack --ignore-scripts --pack-destination "${plugin_pack_dir}" | tail -n 1
+            )"
+            input_tgz="${plugin_pack_dir}/${tgz}"
+            output_tgz=".local/github-packages/$(basename "${input_tgz}")"
+            node scripts/polytropos-prepare-github-package-tarball.mjs \
+              --input "${input_tgz}" \
+              --output "${output_tgz}" \
+              --published-name "${published_name}" \
+              --published-version "${RELEASE_PACKAGE_VERSION}" \
+              --repository-url "git+https://github.com/${GITHUB_REPOSITORY}.git" \
+              --install-npm-spec "${published_name}"
+            if npm view "${published_name}@${RELEASE_PACKAGE_VERSION}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
+              echo "${published_name}@${RELEASE_PACKAGE_VERSION} already published to GitHub Packages."
+              continue
+            fi
+            npm publish "${output_tgz}" --tag latest --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
+          done < <(jq -c '.packages[] | select(.packageType=="plugin")' .local/polytropos-release-plan.json)
+
+      - name: Wait for GitHub Packages visibility
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          while IFS= read -r spec; do
+            for attempt in $(seq 1 12); do
+              if npm view "${spec}" version --registry "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}" >/dev/null 2>&1; then
+                echo "Visible: ${spec}"
+                break
+              fi
+              if [ "${attempt}" -eq 12 ]; then
+                echo "Timed out waiting for ${spec} to appear in GitHub Packages." >&2
+                exit 1
+              fi
+              sleep 5
+            done
+          done < <(
+            jq -r --arg version "${RELEASE_PACKAGE_VERSION}" '
+              .packages[]
+              | select(.packageType == "core" or (.packageType == "plugin" and .shouldPublish == true))
+              | "\(.publishedPackageName)@\($version)"
+            ' .local/polytropos-release-plan.json
+          )
+
+      - name: Generate package inventory
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p .local
+          tracked_plugins="$(jq -r '.[] | select(. != "openclaw")' .github/polytropos-tracked-packages.json | paste -sd, -)"
+          previous_release_tag="$(git tag -l 'v*-poly.*' | grep -Fxv "${RELEASE_TAG}" | sort -V | tail -n 1 || true)"
+
+          inventory_args=(
+            --tracked-packages-file .github/polytropos-tracked-packages.json
+            --output .local/polytropos-package-inventory.json
+            --release-tag "${RELEASE_TAG}"
+            --published-version "${RELEASE_PACKAGE_VERSION}"
+            --repository "${GITHUB_REPOSITORY}"
+            --workflow-run-id "${GITHUB_RUN_ID}"
+            --github-package-scope "${{ steps.github_packages_auth.outputs.package_scope }}"
+            --package-registry-url "${POLYTROPOS_GITHUB_PACKAGES_REGISTRY}"
+            --plugins "${tracked_plugins}"
+          )
+          if [ -n "${previous_release_tag}" ]; then
+            inventory_args+=(--base-ref "${previous_release_tag}" --head-ref "${RELEASE_TAG}")
+          fi
+
+          node --import tsx scripts/polytropos-package-inventory.ts "${inventory_args[@]}"
+
+      - name: Upload package inventory artifact
         if: github.ref_type == 'tag'
         uses: actions/upload-artifact@v4
         with:
-          name: openclaw-tgz-${{ env.RELEASE_TAG }}
-          path: ${{ steps.pack.outputs.tgz }}
+          name: ${{ env.POLYTROPOS_PACKAGE_INVENTORY_ARTIFACT }}-${{ env.RELEASE_TAG }}
+          path: .local/polytropos-package-inventory.json
           if-no-files-found: error
           retention-days: 14
 
