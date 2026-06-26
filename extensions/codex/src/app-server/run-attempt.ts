@@ -804,7 +804,7 @@ export async function runCodexAppServerAttempt(
         params.bootstrapContextMode === "lightweight" && params.bootstrapContextRunKind === "cron",
     });
   let codexTurnPromptText = decorateCodexTurnPromptText(promptBuild.prompt);
-  const buildDefaultCodexTurnCollaborationDeveloperInstructions = () =>
+  const buildBaseCodexTurnCollaborationDeveloperInstructions = () =>
     buildTurnCollaborationMode(params, {
       turnScopedDeveloperInstructions: workspaceBootstrapContext.turnScopedDeveloperInstructions,
       skillsCollaborationInstructions,
@@ -819,9 +819,9 @@ export async function runCodexAppServerAttempt(
         appendDeveloperInstructions?: string;
       }
     | undefined;
-  const resolveCodexTurnCollaborationDeveloperInstructions = async () => {
+  const buildCodexTurnCollaborationDeveloperInstructions = async () => {
     const baseCollaborationDeveloperInstructions =
-      buildDefaultCodexTurnCollaborationDeveloperInstructions();
+      buildBaseCodexTurnCollaborationDeveloperInstructions();
     if (!hookRunner?.hasHooks("before_turn_developer_instructions")) {
       codexTurnCollaborationDeveloperInstructionsHookResult = undefined;
       return baseCollaborationDeveloperInstructions;
@@ -856,8 +856,8 @@ export async function runCodexAppServerAttempt(
     return mergedDeveloperInstructions?.trim() ? mergedDeveloperInstructions : undefined;
   };
   const codexTurnCollaborationDeveloperInstructions =
-    await resolveCodexTurnCollaborationDeveloperInstructions();
-  const buildRenderedCodexTurnDeveloperInstructions = () =>
+    await buildCodexTurnCollaborationDeveloperInstructions();
+  const buildRenderedCodexDeveloperInstructions = () =>
     joinPresentSections(
       promptBuild.developerInstructions,
       codexTurnCollaborationDeveloperInstructions,
@@ -982,7 +982,7 @@ export async function runCodexAppServerAttempt(
     const hadInactiveThreadBootstrapBinding = isInactiveThreadBootstrapBinding(startupBinding);
     const projectedTurnTokens = estimateCodexAppServerProjectedTurnTokens({
       prompt: codexTurnPromptText,
-      developerInstructions: buildRenderedCodexTurnDeveloperInstructions(),
+      developerInstructions: buildRenderedCodexDeveloperInstructions(),
     });
     startupBinding = await rotateOversizedCodexAppServerStartupBinding({
       binding: startupBinding,
@@ -1016,7 +1016,7 @@ export async function runCodexAppServerAttempt(
       sessionKey: contextSessionKey,
       previousThreadId,
       promptChars: codexTurnPromptText.length,
-      developerInstructionChars: buildRenderedCodexTurnDeveloperInstructions()?.length ?? 0,
+      developerInstructionChars: buildRenderedCodexDeveloperInstructions()?.length ?? 0,
     });
   };
   await rotateStartupBindingForProjectedTurn();
@@ -1024,7 +1024,7 @@ export async function runCodexAppServerAttempt(
     attempt: params,
     sessionKey: contextSessionKey,
     workspaceDir: effectiveWorkspace,
-    developerInstructions: buildRenderedCodexTurnDeveloperInstructions(),
+    developerInstructions: buildRenderedCodexDeveloperInstructions(),
     workspaceBootstrapContext,
     skillsPrompt: skillsCollaborationInstructions ? (params.skillsSnapshot?.prompt ?? "") : "",
     tools: toolBridge.availableSpecs,
@@ -1032,7 +1032,7 @@ export async function runCodexAppServerAttempt(
   const trajectoryRecorder = createCodexTrajectoryRecorder({
     attempt: params,
     cwd: effectiveCwd,
-    developerInstructions: buildRenderedCodexTurnDeveloperInstructions(),
+    developerInstructions: buildRenderedCodexDeveloperInstructions(),
     prompt: codexTurnPromptText,
     tools: toolBridge.availableSpecs,
   });
@@ -1172,7 +1172,7 @@ export async function runCodexAppServerAttempt(
   recordCodexTrajectoryContext(trajectoryRecorder, {
     attempt: params,
     cwd: effectiveCwd,
-    developerInstructions: buildRenderedCodexTurnDeveloperInstructions(),
+    developerInstructions: buildRenderedCodexDeveloperInstructions(),
     prompt: codexTurnPromptText,
     tools: toolBridge.availableSpecs,
   });
@@ -1848,7 +1848,7 @@ export async function runCodexAppServerAttempt(
     sessionId: params.sessionId,
     provider: params.provider,
     model: params.modelId,
-    systemPrompt: buildRenderedCodexTurnDeveloperInstructions(),
+    systemPrompt: buildRenderedCodexDeveloperInstructions(),
     prompt: codexTurnPromptText,
     historyMessages: codexModelInputHistoryMessages,
     imagesCount: params.images?.length ?? 0,
@@ -1875,7 +1875,7 @@ export async function runCodexAppServerAttempt(
     capture: codexModelContentCapture,
     tools,
     buildInputMessages: buildCodexModelInputMessages,
-    buildSystemPrompt: buildRenderedCodexTurnDeveloperInstructions,
+    buildSystemPrompt: buildRenderedCodexDeveloperInstructions,
     onErrorDiagnostic: (error) => {
       embeddedAgentLog.debug("codex app-server model call diagnostic ended with error", {
         error: formatErrorMessage(error),
