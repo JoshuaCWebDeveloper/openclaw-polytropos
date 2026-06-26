@@ -1041,6 +1041,7 @@ export function buildTurnStartParams(
     promptText?: string;
     sandboxPolicy?: CodexSandboxPolicy;
     environmentSelection?: CodexTurnEnvironmentParams[];
+    collaborationDeveloperInstructions?: string;
     turnScopedDeveloperInstructions?: string;
     skillsCollaborationInstructions?: string;
     memoryCollaborationInstructions?: string;
@@ -1061,6 +1062,7 @@ export function buildTurnStartParams(
     effort: resolveReasoningEffort(params.thinkLevel, params.modelId),
     ...(options.environmentSelection ? { environments: options.environmentSelection } : {}),
     collaborationMode: buildTurnCollaborationMode(params, {
+      developerInstructions: options.collaborationDeveloperInstructions,
       turnScopedDeveloperInstructions: options.turnScopedDeveloperInstructions,
       skillsCollaborationInstructions: options.skillsCollaborationInstructions,
       memoryCollaborationInstructions: options.memoryCollaborationInstructions,
@@ -1087,6 +1089,7 @@ type CodexTurnCollaborationMode = NonNullable<CodexTurnStartParams["collaboratio
 export function buildTurnCollaborationMode(
   params: EmbeddedRunAttemptParams,
   options: {
+    developerInstructions?: string;
     turnScopedDeveloperInstructions?: string;
     skillsCollaborationInstructions?: string;
     memoryCollaborationInstructions?: string;
@@ -1098,7 +1101,10 @@ export function buildTurnCollaborationMode(
     settings: {
       model: params.modelId,
       reasoning_effort: resolveReasoningEffort(params.thinkLevel, params.modelId),
-      developer_instructions: buildTurnScopedCollaborationInstructions(params, options),
+      developer_instructions:
+        typeof options.developerInstructions === "string"
+          ? options.developerInstructions
+          : buildTurnScopedCollaborationInstructions(params, options),
     },
   };
 }
@@ -1133,7 +1139,7 @@ function buildTurnScopedCollaborationInstructions(
   return null;
 }
 
-function buildDefaultCollaborationInstructions(): string {
+export function buildDefaultCollaborationInstructions(): string {
   // Codex only applies the built-in Default-mode preset when `developer_instructions`
   // is null. OpenClaw adds per-turn workspace instructions here, so preserve that
   // pinned Codex default behavior before appending the workspace overlay.

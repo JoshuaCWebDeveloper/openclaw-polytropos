@@ -103,6 +103,7 @@ observation-only.
 - `before_model_resolve` - override provider or model before session messages load
 - `agent_turn_prepare` - consume queued plugin turn injections and add same-turn context before prompt hooks
 - `before_prompt_build` - add dynamic context or system-prompt text before the model call
+- `before_turn_developer_instructions` - mutate the already-built turn-level developer instructions string before native Codex `turn/start`; return `developerInstructions`, `prependDeveloperInstructions`, or `appendDeveloperInstructions`
 - `before_agent_start` - compatibility-only combined phase; prefer the two hooks above
 - **`before_agent_run`** - inspect the final prompt and session messages before model submission and optionally block the run
 - **`before_agent_reply`** - short-circuit the model turn with a synthetic reply or silence
@@ -115,6 +116,12 @@ observation-only.
 - `model_call_started` / `model_call_ended` - observe sanitized provider/model call metadata, timing, outcome, and bounded request-id hashes without prompt or response content
 - `llm_input` - observe provider input (system prompt, prompt, history)
 - `llm_output` - observe provider output, usage, and the resolved `contextTokenBudget` when available
+
+`before_turn_developer_instructions` is part of prompt injection policy, so
+`hooks.allowPromptInjection=false` blocks it. Today OpenClaw invokes it only on
+the Codex app-server harness because that harness has a separate turn-level
+developer-instructions lane. Like `before_prompt_build`, it is a modifying hook
+with the default 15000ms fail-open timeout budget.
 
 **Tools**
 

@@ -1,5 +1,6 @@
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { withActivatedPluginIds } from "../../plugins/activation-context.js";
+import { getCurrentPluginMetadataSnapshot } from "../../plugins/current-plugin-metadata-snapshot.js";
 import {
   resolveActivatableProviderOwnerPluginIds,
   resolveBundledProviderCompatPluginIds,
@@ -23,6 +24,21 @@ function dedupePluginIds(values: readonly string[]): string[] {
     result.push(pluginId);
   }
   return result;
+}
+
+function resolveStartupPluginIds(params: {
+  config?: OpenClawConfig;
+  workspaceDir: string;
+}): string[] {
+  const snapshot = getCurrentPluginMetadataSnapshot({
+    config: params.config,
+    workspaceDir: params.workspaceDir,
+  }) as { startup?: { pluginIds?: readonly unknown[] } } | undefined;
+  const pluginIds = snapshot?.startup?.pluginIds;
+  if (!Array.isArray(pluginIds)) {
+    return [];
+  }
+  return pluginIds.filter((pluginId): pluginId is string => typeof pluginId === "string");
 }
 
 function restrictiveAllowlistOmitsPlugin(config: OpenClawConfig | undefined, pluginId: string) {
@@ -128,15 +144,25 @@ export async function ensureSelectedAgentHarnessPlugin(params: {
     config: params.config,
     workspaceDir: params.workspaceDir,
   });
+  // Cold-loading the harness runtime must preserve plugins already selected at
+  // startup, or prompt-time hooks like channel-context-overlay can disappear
+  // when Codex narrows the registry to its runtime/provider plugin set.
+  const scopedPluginIds = dedupePluginIds([
+    ...pluginIds,
+    ...resolveStartupPluginIds({
+      config: params.config,
+      workspaceDir: params.workspaceDir,
+    }),
+  ]);
   const configWithAllowedRuntimePlugins = withRuntimePluginIdsAllowed({
     config: params.config,
     requiredPluginId: runtime,
-    pluginIds,
+    pluginIds: scopedPluginIds,
   });
   const activatedConfig =
     withActivatedPluginIds({
       config: configWithAllowedRuntimePlugins,
-      pluginIds,
+      pluginIds: scopedPluginIds,
     }) ?? configWithAllowedRuntimePlugins;
   ensurePluginRegistryLoaded({
     scope: "all",
@@ -147,6 +173,6 @@ export async function ensureSelectedAgentHarnessPlugin(params: {
         }
       : {}),
     workspaceDir: params.workspaceDir,
-    onlyPluginIds: pluginIds,
+    onlyPluginIds: scopedPluginIds,
   });
 }

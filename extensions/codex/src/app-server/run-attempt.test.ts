@@ -1717,6 +1717,63 @@ describe("runCodexAppServerAttempt", () => {
     ]);
   });
 
+  it("applies before_turn_developer_instructions to Codex thread startup and turn collaboration instructions", async () => {
+    const beforeTurnDeveloperInstructions = vi.fn(async () => ({
+      appendDeveloperInstructions: "appended turn instructions",
+    }));
+    initializeGlobalHookRunner(
+      createMockPluginRegistry([
+        {
+          hookName: "before_turn_developer_instructions",
+          handler: beforeTurnDeveloperInstructions,
+        },
+      ]),
+    );
+    const sessionFile = path.join(tempDir, "session.jsonl");
+    const workspaceDir = path.join(tempDir, "workspace");
+    const sessionManager = SessionManager.open(sessionFile);
+    sessionManager.appendMessage(assistantMessage("previous turn", Date.now()));
+    const harness = createStartedThreadHarness();
+
+    const run = runCodexAppServerAttempt(createParams(sessionFile, workspaceDir));
+    await harness.waitForMethod("turn/start");
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
+    await run;
+
+    expect(beforeTurnDeveloperInstructions).toHaveBeenCalledOnce();
+    const [hookInput, hookContext] = mockCall(
+      beforeTurnDeveloperInstructions,
+      "before_turn_developer_instructions",
+    ) as [{ developerInstructions?: string }, { runId?: string; sessionId?: string }];
+    expect(hookInput.developerInstructions).toBe("");
+    expect(hookContext.runId).toBe("run-1");
+    expect(hookContext.sessionId).toBe("session-1");
+
+    const threadStart = harness.requests.find((request) => request.method === "thread/start");
+    const threadStartParams = threadStart?.params as { developerInstructions?: string } | undefined;
+    expect(threadStartParams?.developerInstructions).toContain("appended turn instructions");
+
+    const turnStart = harness.requests.find((request) => request.method === "turn/start");
+    const turnStartParams = turnStart?.params as
+      | {
+          collaborationMode?: {
+            settings?: {
+              developer_instructions?: string | null;
+            };
+          };
+        }
+      | undefined;
+    expect(turnStartParams?.collaborationMode?.settings?.developer_instructions).toContain(
+      "# Collaboration Mode: Default",
+    );
+    expect(turnStartParams?.collaborationMode?.settings?.developer_instructions).toContain(
+      "appended turn instructions",
+    );
+  });
+
   it("projects bounded continuity when starting Codex without a native thread binding", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
