@@ -144,6 +144,9 @@ export async function ensureSelectedAgentHarnessPlugin(params: {
     config: params.config,
     workspaceDir: params.workspaceDir,
   });
+  // Cold-loading the harness runtime must preserve plugins already selected at
+  // startup, or prompt-time hooks like channel-context-overlay can disappear
+  // when Codex narrows the registry to its runtime/provider plugin set.
   const scopedPluginIds = dedupePluginIds([
     ...pluginIds,
     ...resolveStartupPluginIds({
