@@ -21,7 +21,7 @@ import { listManagedPluginNpmProjectRootsSync } from "./npm-project-roots.js";
 export { clearLoadInstalledPluginIndexInstallRecordsCache } from "./installed-plugin-index-record-cache.js";
 
 function cloneInstallRecords(
-  records: Record<string, PluginInstallRecord> | undefined,
+  records: Record<string, PluginInstallRecord> | null | undefined,
 ): Record<string, PluginInstallRecord> {
   return readRecordMap(records) ?? {};
 }
