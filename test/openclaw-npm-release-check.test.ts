@@ -754,9 +754,21 @@ describe("collectReleasePackageMetadataErrors", () => {
         description: "Multi-channel AI gateway with extensible messaging integrations",
         license: "MIT",
         repository: { url: "git+https://github.com/openclaw/openclaw.git" },
-        bin: { openclaw: "openclaw.mjs" },
+        bin: { openclaw: "polytropos.mjs" },
       }),
     ).toStrictEqual([]);
+  });
+
+  it("requires the Polytropos launcher as the shipped CLI entry", () => {
+    expect(
+      collectReleasePackageMetadataErrors({
+        name: "openclaw",
+        description: "Multi-channel AI gateway with extensible messaging integrations",
+        license: "MIT",
+        repository: { url: "git+https://github.com/openclaw/openclaw.git" },
+        bin: { openclaw: "openclaw.mjs" },
+      }),
+    ).toContain('package.json bin.openclaw must be "polytropos.mjs"; found "openclaw.mjs".');
   });
 
   it("rejects node-llama-cpp as a peer dependency", () => {
@@ -766,7 +778,7 @@ describe("collectReleasePackageMetadataErrors", () => {
         description: "Multi-channel AI gateway with extensible messaging integrations",
         license: "MIT",
         repository: { url: "git+https://github.com/openclaw/openclaw.git" },
-        bin: { openclaw: "openclaw.mjs" },
+        bin: { openclaw: "polytropos.mjs" },
         peerDependencies: { "node-llama-cpp": "3.18.1" },
         peerDependenciesMeta: { "node-llama-cpp": { optional: true } },
       }),
@@ -783,7 +795,7 @@ describe("collectReleasePackageMetadataErrors", () => {
         description: "Multi-channel AI gateway with extensible messaging integrations",
         license: "MIT",
         repository: { url: "git+https://github.com/openclaw/openclaw.git" },
-        bin: { openclaw: "openclaw.mjs" },
+        bin: { openclaw: "polytropos.mjs" },
         dependencies: { "node-llama-cpp": "3.18.1" },
       }),
     ).toContain('package.json dependencies["node-llama-cpp"] must be omitted; keep it optional.');
@@ -796,7 +808,7 @@ describe("collectReleasePackageMetadataErrors", () => {
         description: "Multi-channel AI gateway with extensible messaging integrations",
         license: "MIT",
         repository: { url: "git+https://github.com/openclaw/openclaw.git" },
-        bin: { openclaw: "openclaw.mjs" },
+        bin: { openclaw: "polytropos.mjs" },
         dependencies: { "@openclaw/fs-safe": "link:../fs-safe" },
       }),
     ).toContain(
@@ -811,7 +823,7 @@ describe("collectReleasePackageMetadataErrors", () => {
         description: "Multi-channel AI gateway with extensible messaging integrations",
         license: "MIT",
         repository: { url: "git+https://github.com/openclaw/openclaw.git" },
-        bin: { openclaw: "openclaw.mjs" },
+        bin: { openclaw: "polytropos.mjs" },
         optionalDependencies: { "node-llama-cpp": "3.18.1" },
       }),
     ).toContain(
