@@ -94,6 +94,11 @@ What still needs wrapper-specific logic:
 - a lightweight way to know whether Polytropos wants to claim a given root
 - fallback execution when no plugin claims the root
 
+Planning note: top-level root routing is too coarse for the intended first
+target. `openclaw hooks relay` needs subcommand-aware routing, because `hooks`
+also owns other subcommands that should keep falling through unless explicitly
+forked.
+
 So the likely split is:
 
 - reuse upstream `registerCli(...)` and `registerPluginCliCommands(...)`
@@ -355,6 +360,9 @@ every wrapper startup:
   - but still does plugin discovery, manifest loading, config validation, module
     import, and plugin `register(api)` execution in `cli-metadata` mode
   - currently runs with `cache: false`, so it is not a cheap per-event lookup
+  - plugin-registry-based ownership checks may preserve more startup/bootstrap
+    cost than expected; validate that during the CLI fork and adjust the
+    ownership lookup if necessary
 - `registerPluginCliCommands(...)`
   - useful once the chosen root is already known
   - not sufficient as the root-selection mechanism itself

@@ -67,7 +67,7 @@
         "zod": "4.4.3"
       },
       "bin": {
-        "openclaw": "openclaw.mjs"
+        "openclaw": "polytropos.mjs"
       },
       "engines": {
         "node": ">=22.19.0"
