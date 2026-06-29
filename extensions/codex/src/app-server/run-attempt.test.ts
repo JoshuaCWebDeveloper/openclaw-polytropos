@@ -1694,12 +1694,12 @@ describe("runCodexAppServerAttempt", () => {
 
     expect(beforePromptBuild).toHaveBeenCalledOnce();
     const [hookInput, hookContext] = mockCall(beforePromptBuild, "before_prompt_build") as [
-      { messages?: Array<{ role?: string }>; prompt?: string; developerInstructions?: string },
+      { messages?: Array<{ role?: string }>; prompt?: string; systemPrompt?: string },
       { runId?: string; sessionId?: string },
     ];
     expect(hookInput.prompt).toBe("hello");
     expect(hookInput.messages).toEqual([]);
-    expect(hookInput.developerInstructions).toContain(
+    expect(hookInput.systemPrompt).toContain(
       "You are a personal agent running inside OpenClaw.",
     );
     expect(hookContext.runId).toBe("run-1");

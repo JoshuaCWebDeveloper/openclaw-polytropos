@@ -51,7 +51,7 @@ export type PromptBuildHookRunner = {
     ctx: PluginHookAgentContext,
   ) => Promise<PluginAgentTurnPrepareResult | undefined>;
   runBeforePromptBuild: (
-    event: { prompt: string; messages: unknown[]; developerInstructions: string },
+    event: { prompt: string; messages: unknown[]; systemPrompt: string },
     ctx: PluginHookAgentContext,
   ) => Promise<PluginHookBeforePromptBuildResult | undefined>;
   runBeforeAgentStart: (
@@ -156,7 +156,7 @@ export async function resolvePromptBuildHookResult(params: {
           {
             prompt: params.prompt,
             messages: params.messages,
-            developerInstructions: params.developerInstructions,
+            systemPrompt: params.developerInstructions,
           },
           params.hookCtx,
         )

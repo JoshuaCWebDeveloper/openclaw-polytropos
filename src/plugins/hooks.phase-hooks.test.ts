@@ -41,7 +41,7 @@ describe("phase hooks merger", () => {
       );
     }
     return await runner.runBeforePromptBuild(
-      { prompt: "test", messages: [], developerInstructions: "test instructions" },
+      { prompt: "test", messages: [], systemPrompt: "test instructions" },
       {},
     );
   }
