@@ -33,6 +33,7 @@ export async function resolveAgentHarnessBeforePromptBuildResult(params: {
   const promptEvent = {
     prompt: params.prompt,
     messages: params.messages,
+    developerInstructions: params.developerInstructions,
   };
 
   const promptBuildResult = hookRunner.hasHooks("before_prompt_build")
