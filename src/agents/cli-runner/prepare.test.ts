@@ -358,7 +358,7 @@ describe("shouldSkipLocalCliCredentialEpoch", () => {
       const beforePromptBuildCalls = hookRunner.runBeforePromptBuild.mock.calls as unknown as Array<
         [unknown, unknown]
       >;
-      expect(beforePromptBuildCalls[0]?.[0]).toEqual({
+      expect(beforePromptBuildCalls[0]?.[0]).toMatchObject({
         prompt: "latest ask",
         messages: [
           { role: "user", content: "earlier context", timestamp: 1 },
@@ -381,6 +381,12 @@ describe("shouldSkipLocalCliCredentialEpoch", () => {
           },
         ],
       });
+      const promptBuildEvent = beforePromptBuildCalls[0]?.[0] as {
+        developerInstructions?: string;
+      };
+      expect(promptBuildEvent.developerInstructions).toContain(
+        "You are a personal assistant running inside OpenClaw.",
+      );
       const hookContext = beforePromptBuildCalls[0]?.[1] as
         | {
             runId?: string;
