@@ -40,7 +40,10 @@ describe("phase hooks merger", () => {
         {},
       );
     }
-    return await runner.runBeforePromptBuild({ prompt: "test", messages: [] }, {});
+    return await runner.runBeforePromptBuild(
+      { prompt: "test", messages: [], developerInstructions: "test instructions" },
+      {},
+    );
   }
 
   async function expectPhaseHookMerge(params: {

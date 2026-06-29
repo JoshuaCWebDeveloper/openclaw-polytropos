@@ -80,7 +80,10 @@ describe("model override pipeline wiring", () => {
 
   async function runPromptBuildWithMessages(messages: unknown[]) {
     const runner = createHookRunner(registry);
-    return await runner.runBeforePromptBuild({ prompt: "test", messages }, stubCtx);
+    return await runner.runBeforePromptBuild(
+      { prompt: "test", messages, developerInstructions: "test instructions" },
+      stubCtx,
+    );
   }
 
   async function expectBeforeModelResolve(params: {
@@ -251,7 +254,7 @@ describe("model override pipeline wiring", () => {
         });
 
         const resultPromise = runner.runBeforePromptBuild(
-          { prompt: "test", messages: [] },
+          { prompt: "test", messages: [], developerInstructions: "test instructions" },
           stubCtx,
         );
         await vi.advanceTimersByTimeAsync(5);
@@ -292,7 +295,7 @@ describe("model override pipeline wiring", () => {
         });
 
         const resultPromise = runner.runBeforePromptBuild(
-          { prompt: "test", messages: [] },
+          { prompt: "test", messages: [], developerInstructions: "test instructions" },
           stubCtx,
         );
         await vi.advanceTimersByTimeAsync(20);
