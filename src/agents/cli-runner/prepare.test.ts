@@ -382,9 +382,9 @@ describe("shouldSkipLocalCliCredentialEpoch", () => {
         ],
       });
       const promptBuildEvent = beforePromptBuildCalls[0]?.[0] as {
-        developerInstructions?: string;
+        systemPrompt?: string;
       };
-      expect(promptBuildEvent.developerInstructions).toContain(
+      expect(promptBuildEvent.systemPrompt).toContain(
         "You are a personal assistant running inside OpenClaw.",
       );
       const hookContext = beforePromptBuildCalls[0]?.[1] as
