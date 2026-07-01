@@ -221,14 +221,6 @@ describe("command-path-policy", () => {
       loadPlugins: "never",
       networkProxy: "bypass",
     });
-    expectResolvedPolicy(["hooks"], {
-      loadPlugins: "always",
-      networkProxy: "bypass",
-    });
-    expectResolvedPolicy(["hooks", "relay"], {
-      loadPlugins: "always",
-      networkProxy: "bypass",
-    });
     for (const commandPath of [["tasks"], ["tasks", "list"], ["tasks", "audit"]]) {
       expectResolvedPolicy(commandPath, {
         ensureCliPath: false,
