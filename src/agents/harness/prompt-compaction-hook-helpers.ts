@@ -33,6 +33,11 @@ export async function resolveAgentHarnessBeforePromptBuildResult(params: {
   const promptEvent = {
     prompt: params.prompt,
     messages: params.messages,
+    systemPrompt: params.developerInstructions,
+  };
+  const legacyPromptEvent = {
+    prompt: params.prompt,
+    messages: params.messages,
   };
 
   const promptBuildResult = hookRunner.hasHooks("before_prompt_build")
@@ -42,7 +47,7 @@ export async function resolveAgentHarnessBeforePromptBuildResult(params: {
       })
     : undefined;
   const beforeAgentStartResult = hookRunner.hasHooks("before_agent_start")
-    ? await hookRunner.runBeforeAgentStart(promptEvent, hookCtx).catch((error: unknown) => {
+    ? await hookRunner.runBeforeAgentStart(legacyPromptEvent, hookCtx).catch((error: unknown) => {
         log.warn(`deprecated before_agent_start hook failed during prompt build: ${String(error)}`);
         return undefined;
       })

@@ -146,6 +146,7 @@ describe("resolvePromptBuildHookResult", () => {
       config: {},
       prompt: "hello",
       messages: [],
+      developerInstructions: "base developer instructions",
       hookCtx: {},
       hookRunner,
       beforeAgentStartResult: { prependContext: "from-cache", systemPrompt: "agent-start-system" },
@@ -168,6 +169,7 @@ describe("resolvePromptBuildHookResult", () => {
       config: {},
       prompt: "hello",
       messages,
+      developerInstructions: "base developer instructions",
       hookCtx: {},
       hookRunner,
     });
@@ -198,6 +200,7 @@ describe("resolvePromptBuildHookResult", () => {
       config: {},
       prompt: "hello",
       messages: [],
+      developerInstructions: "base developer instructions",
       hookCtx: {},
       hookRunner,
     });
@@ -227,6 +230,7 @@ describe("resolvePromptBuildHookResult", () => {
       config: {},
       prompt: "hello",
       messages: [],
+      developerInstructions: "base developer instructions",
       hookCtx: { trigger: "heartbeat", sessionKey: "agent:main:main" },
       hookRunner,
     });
@@ -240,6 +244,7 @@ describe("resolvePromptBuildHookResult", () => {
       config: {},
       prompt: "hello",
       messages: [],
+      developerInstructions: "base developer instructions",
       hookCtx: { trigger: "user", sessionKey: "agent:main:main" },
       hookRunner,
     });

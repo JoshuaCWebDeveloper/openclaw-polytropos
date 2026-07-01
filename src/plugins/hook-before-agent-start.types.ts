@@ -23,6 +23,8 @@ export type PluginHookBeforePromptBuildEvent = {
   prompt: string;
   /** Session messages prepared for this run. */
   messages: unknown[];
+  /** Current system prompt before prompt-build replacements are applied. */
+  systemPrompt: string;
 };
 
 export type PluginHookBeforePromptBuildResult = {

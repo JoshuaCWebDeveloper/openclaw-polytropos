@@ -51,7 +51,7 @@ export type PromptBuildHookRunner = {
     ctx: PluginHookAgentContext,
   ) => Promise<PluginAgentTurnPrepareResult | undefined>;
   runBeforePromptBuild: (
-    event: { prompt: string; messages: unknown[] },
+    event: { prompt: string; messages: unknown[]; systemPrompt: string },
     ctx: PluginHookAgentContext,
   ) => Promise<PluginHookBeforePromptBuildResult | undefined>;
   runBeforeAgentStart: (
@@ -97,6 +97,7 @@ export async function resolvePromptBuildHookResult(params: {
   config: OpenClawConfig;
   prompt: string;
   messages: unknown[];
+  developerInstructions: string;
   hookCtx: PluginHookAgentContext;
   hookRunner?: PromptBuildHookRunner | null;
   beforeAgentStartResult?: PluginHookBeforeAgentStartResult;
@@ -155,6 +156,7 @@ export async function resolvePromptBuildHookResult(params: {
           {
             prompt: params.prompt,
             messages: params.messages,
+            systemPrompt: params.developerInstructions,
           },
           params.hookCtx,
         )

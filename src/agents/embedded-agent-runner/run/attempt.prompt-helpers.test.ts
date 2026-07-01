@@ -215,12 +215,14 @@ describe("resolvePromptBuildHookResult drain cache", () => {
       config: {},
       prompt: "hi",
       messages: [],
+      developerInstructions: "base developer instructions",
       hookCtx,
     });
     const second = await resolvePromptBuildHookResult({
       config: {},
       prompt: "hi",
       messages: [],
+      developerInstructions: "base developer instructions",
       hookCtx,
     });
 
@@ -244,12 +246,24 @@ describe("resolvePromptBuildHookResult drain cache", () => {
 
     const hookCtx = { runId: "run-evict-test", sessionKey: "agent:main:main" };
 
-    await resolvePromptBuildHookResult({ config: {}, prompt: "hi", messages: [], hookCtx });
+    await resolvePromptBuildHookResult({
+      config: {},
+      prompt: "hi",
+      messages: [],
+      developerInstructions: "base developer instructions",
+      hookCtx,
+    });
     expect(hostHookStateMocks.drainPluginNextTurnInjectionContext).toHaveBeenCalledTimes(1);
 
     forgetPromptBuildDrainCacheForRun("run-evict-test");
 
-    await resolvePromptBuildHookResult({ config: {}, prompt: "hi", messages: [], hookCtx });
+    await resolvePromptBuildHookResult({
+      config: {},
+      prompt: "hi",
+      messages: [],
+      developerInstructions: "base developer instructions",
+      hookCtx,
+    });
     expect(hostHookStateMocks.drainPluginNextTurnInjectionContext).toHaveBeenCalledTimes(2);
   });
 
@@ -264,12 +278,14 @@ describe("resolvePromptBuildHookResult drain cache", () => {
       config: {},
       prompt: "hi",
       messages: [],
+      developerInstructions: "base developer instructions",
       hookCtx: { sessionKey: "agent:main:main" },
     });
     await resolvePromptBuildHookResult({
       config: {},
       prompt: "hi",
       messages: [],
+      developerInstructions: "base developer instructions",
       hookCtx: { sessionKey: "agent:main:main" },
     });
 
