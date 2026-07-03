@@ -1720,6 +1720,68 @@ describe("runCodexAppServerAttempt", () => {
     ]);
   });
 
+  it("applies before_developer_instructions to Codex thread developer instructions", async () => {
+    const beforeDeveloperInstructions = vi.fn(async () => ({
+      developerInstructions: "custom thread developer instructions",
+      prependDeveloperInstructions: "prepended thread instructions",
+      appendDeveloperInstructions: "appended thread instructions",
+    }));
+    initializeGlobalHookRunner(
+      createMockPluginRegistry([
+        {
+          hookName: "before_developer_instructions",
+          handler: beforeDeveloperInstructions,
+        },
+      ]),
+    );
+    const sessionFile = path.join(tempDir, "session.jsonl");
+    const workspaceDir = path.join(tempDir, "workspace");
+    const harness = createStartedThreadHarness();
+
+    const run = runCodexAppServerAttempt(createParams(sessionFile, workspaceDir));
+    await harness.waitForMethod("turn/start");
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
+    await run;
+
+    expect(beforeDeveloperInstructions).toHaveBeenCalledOnce();
+    const [hookInput, hookContext] = mockCall(
+      beforeDeveloperInstructions,
+      "before_developer_instructions",
+    ) as [{ developerInstructions?: string }, { runId?: string; sessionId?: string }];
+    expect(hookInput.developerInstructions).toContain(
+      "You are a personal agent running inside OpenClaw.",
+    );
+    expect(hookContext.runId).toBe("run-1");
+    expect(hookContext.sessionId).toBe("session-1");
+
+    const threadStart = harness.requests.find((request) => request.method === "thread/start");
+    const threadStartParams = threadStart?.params as { developerInstructions?: string } | undefined;
+    expect(threadStartParams?.developerInstructions).toBe(
+      [
+        "prepended thread instructions",
+        "custom thread developer instructions",
+        "appended thread instructions",
+      ].join("\n\n"),
+    );
+
+    const turnStart = harness.requests.find((request) => request.method === "turn/start");
+    const turnStartParams = turnStart?.params as
+      | {
+          collaborationMode?: {
+            settings?: {
+              developer_instructions?: string | null;
+            };
+          };
+        }
+      | undefined;
+    const turnDeveloperInstructions =
+      turnStartParams?.collaborationMode?.settings?.developer_instructions ?? "";
+    expect(turnDeveloperInstructions).not.toContain("custom thread developer instructions");
+  });
+
   it("applies before_turn_developer_instructions to Codex thread startup and turn collaboration instructions", async () => {
     const beforeTurnDeveloperInstructions = vi.fn(async () => ({
       appendDeveloperInstructions: "appended turn instructions",

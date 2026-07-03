@@ -4,6 +4,7 @@ import { addStaticTestHooks } from "./hooks.test-helpers.js";
 import { createEmptyPluginRegistry, type PluginRegistry } from "./registry.js";
 import type {
   PluginHookBeforeModelResolveResult,
+  PluginHookBeforeDeveloperInstructionsResult,
   PluginHookBeforePromptBuildResult,
   PluginHookBeforeTurnDeveloperInstructionsResult,
 } from "./types.js";
@@ -16,11 +17,16 @@ describe("phase hooks merger", () => {
   });
 
   async function runPhaseHook(params: {
-    hookName: "before_model_resolve" | "before_prompt_build" | "before_turn_developer_instructions";
+    hookName:
+      | "before_model_resolve"
+      | "before_prompt_build"
+      | "before_developer_instructions"
+      | "before_turn_developer_instructions";
     hooks: ReadonlyArray<{
       pluginId: string;
       result:
         | PluginHookBeforeModelResolveResult
+        | PluginHookBeforeDeveloperInstructionsResult
         | PluginHookBeforePromptBuildResult
         | PluginHookBeforeTurnDeveloperInstructionsResult;
       priority?: number;
@@ -33,6 +39,12 @@ describe("phase hooks merger", () => {
     const runner = createHookRunner(registry);
     if (params.hookName === "before_model_resolve") {
       return await runner.runBeforeModelResolve({ prompt: "test" }, {});
+    }
+    if (params.hookName === "before_developer_instructions") {
+      return await runner.runBeforeDeveloperInstructions(
+        { developerInstructions: "test instructions" },
+        {},
+      );
     }
     if (params.hookName === "before_turn_developer_instructions") {
       return await runner.runBeforeTurnDeveloperInstructions(
@@ -47,17 +59,23 @@ describe("phase hooks merger", () => {
   }
 
   async function expectPhaseHookMerge(params: {
-    hookName: "before_model_resolve" | "before_prompt_build" | "before_turn_developer_instructions";
+    hookName:
+      | "before_model_resolve"
+      | "before_prompt_build"
+      | "before_developer_instructions"
+      | "before_turn_developer_instructions";
     hooks: ReadonlyArray<{
       pluginId: string;
       result:
         | PluginHookBeforeModelResolveResult
+        | PluginHookBeforeDeveloperInstructionsResult
         | PluginHookBeforePromptBuildResult
         | PluginHookBeforeTurnDeveloperInstructionsResult;
       priority?: number;
     }>;
     expected:
       | PluginHookBeforeModelResolveResult
+      | PluginHookBeforeDeveloperInstructionsResult
       | PluginHookBeforePromptBuildResult
       | PluginHookBeforeTurnDeveloperInstructionsResult;
   }) {
@@ -135,6 +153,35 @@ describe("phase hooks merger", () => {
         appendContext: undefined,
         prependSystemContext: "prepend A\n\nprepend B",
         appendSystemContext: "append A\n\nappend B",
+      },
+    },
+    {
+      name: "before_developer_instructions can replace and concatenate developer instructions",
+      hookName: "before_developer_instructions" as const,
+      hooks: [
+        {
+          pluginId: "high",
+          result: {
+            developerInstructions: "override A",
+            prependDeveloperInstructions: "prepend A",
+            appendDeveloperInstructions: "append A",
+          },
+          priority: 10,
+        },
+        {
+          pluginId: "low",
+          result: {
+            developerInstructions: "override B",
+            prependDeveloperInstructions: "prepend B",
+            appendDeveloperInstructions: "append B",
+          },
+          priority: 1,
+        },
+      ],
+      expected: {
+        developerInstructions: "override A",
+        prependDeveloperInstructions: "prepend A\n\nprepend B",
+        appendDeveloperInstructions: "append A\n\nappend B",
       },
     },
     {
