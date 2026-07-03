@@ -12,6 +12,8 @@ import type { DiagnosticTraceContext } from "../infra/diagnostic-trace-context.j
 import type {
   PluginHookBeforeAgentStartEvent,
   PluginHookBeforeAgentStartResult,
+  PluginHookBeforeDeveloperInstructionsEvent,
+  PluginHookBeforeDeveloperInstructionsResult,
   PluginHookBeforeModelResolveEvent,
   PluginHookBeforeModelResolveResult,
   PluginHookBeforePromptBuildEvent,
@@ -41,6 +43,8 @@ export type {
   PluginHookBeforeAgentStartEvent,
   PluginHookBeforeAgentStartOverrideResult,
   PluginHookBeforeAgentStartResult,
+  PluginHookBeforeDeveloperInstructionsEvent,
+  PluginHookBeforeDeveloperInstructionsResult,
   PluginHookBeforeModelResolveAttachment,
   PluginHookBeforeModelResolveEvent,
   PluginHookBeforeModelResolveResult,
@@ -72,6 +76,7 @@ export type {
 export type PluginHookName =
   | "before_model_resolve"
   | "agent_turn_prepare"
+  | "before_developer_instructions"
   | "before_prompt_build"
   | "before_turn_developer_instructions"
   | "before_agent_start"
@@ -120,6 +125,7 @@ export type PluginHookName =
 export const PLUGIN_HOOK_NAMES = [
   "before_model_resolve",
   "agent_turn_prepare",
+  "before_developer_instructions",
   "before_prompt_build",
   "before_turn_developer_instructions",
   "before_agent_start",
@@ -204,6 +210,7 @@ export const isPluginHookName = (hookName: unknown): hookName is PluginHookName 
 
 export const PROMPT_INJECTION_HOOK_NAMES = [
   "agent_turn_prepare",
+  "before_developer_instructions",
   "before_prompt_build",
   "before_turn_developer_instructions",
   "before_agent_start",
@@ -1015,6 +1022,13 @@ export type PluginHookHandlerMap = {
     event: PluginHookBeforePromptBuildEvent,
     ctx: PluginHookAgentContext,
   ) => Promise<PluginHookBeforePromptBuildResult | void> | PluginHookBeforePromptBuildResult | void;
+  before_developer_instructions: (
+    event: PluginHookBeforeDeveloperInstructionsEvent,
+    ctx: PluginHookAgentContext,
+  ) =>
+    | Promise<PluginHookBeforeDeveloperInstructionsResult | void>
+    | PluginHookBeforeDeveloperInstructionsResult
+    | void;
   before_turn_developer_instructions: (
     event: PluginHookBeforeTurnDeveloperInstructionsEvent,
     ctx: PluginHookAgentContext,

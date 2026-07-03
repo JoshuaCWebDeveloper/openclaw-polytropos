@@ -671,11 +671,24 @@ export async function runCodexAppServerAttempt(
     sessionAgentId,
     memoryToolNames,
   });
-  const baseDeveloperInstructions = joinPresentSections(
+  const rawBaseDeveloperInstructions = joinPresentSections(
     buildDeveloperInstructions(params, {
       dynamicTools: toolBridge.availableSpecs,
     }),
     workspaceBootstrapContext.developerInstructions,
+  );
+  const developerInstructionsHookResult = hookRunner?.hasHooks("before_developer_instructions")
+    ? await hookRunner.runBeforeDeveloperInstructions(
+        { developerInstructions: rawBaseDeveloperInstructions },
+        hookContext,
+      )
+    : undefined;
+  const baseDeveloperInstructions = joinPresentSections(
+    developerInstructionsHookResult?.prependDeveloperInstructions,
+    typeof developerInstructionsHookResult?.developerInstructions === "string"
+      ? developerInstructionsHookResult.developerInstructions
+      : rawBaseDeveloperInstructions,
+    developerInstructionsHookResult?.appendDeveloperInstructions,
   );
   const openClawPromptContext = buildCodexOpenClawPromptContext({
     params,

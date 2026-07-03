@@ -51,6 +51,16 @@ export type PluginHookBeforeTurnDeveloperInstructionsResult = {
   appendDeveloperInstructions?: string;
 };
 
+export type PluginHookBeforeDeveloperInstructionsEvent = {
+  developerInstructions: string;
+};
+
+export type PluginHookBeforeDeveloperInstructionsResult = {
+  developerInstructions?: string;
+  prependDeveloperInstructions?: string;
+  appendDeveloperInstructions?: string;
+};
+
 export const PLUGIN_PROMPT_MUTATION_RESULT_FIELDS = [
   "systemPrompt",
   "prependContext",
