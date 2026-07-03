@@ -27,6 +27,8 @@ import type {
   PluginHookBeforeAgentReplyResult,
   PluginHookBeforeAgentStartEvent,
   PluginHookBeforeAgentStartResult,
+  PluginHookBeforeDeveloperInstructionsEvent,
+  PluginHookBeforeDeveloperInstructionsResult,
   PluginHookBeforeDispatchContext,
   PluginHookBeforeDispatchEvent,
   PluginHookBeforeDispatchResult,
@@ -103,6 +105,8 @@ export type {
   PluginHookBeforeAgentReplyResult,
   PluginHookBeforeAgentStartEvent,
   PluginHookBeforeAgentStartResult,
+  PluginHookBeforeDeveloperInstructionsEvent,
+  PluginHookBeforeDeveloperInstructionsResult,
   PluginHookBeforeDispatchContext,
   PluginHookBeforeDispatchEvent,
   PluginHookBeforeDispatchResult,
@@ -232,6 +236,7 @@ const DEFAULT_MODIFYING_HOOK_TIMEOUT_MS_BY_HOOK: Partial<Record<PluginHookName, 
   // The runner is fail-open for this hook name, so a timed-out handler is
   // logged and the run proceeds without its modifications.
   before_agent_start: 15_000,
+  before_developer_instructions: 15_000,
   before_prompt_build: 15_000,
   before_turn_developer_instructions: 15_000,
   resolve_exec_env: 15_000,
@@ -397,6 +402,24 @@ export function createHookRunner(
     acc: PluginHookBeforeTurnDeveloperInstructionsResult | undefined,
     next: PluginHookBeforeTurnDeveloperInstructionsResult,
   ): PluginHookBeforeTurnDeveloperInstructionsResult => ({
+    developerInstructions:
+      typeof acc?.developerInstructions === "string"
+        ? acc.developerInstructions
+        : next.developerInstructions,
+    prependDeveloperInstructions: concatOptionalTextSegments({
+      left: acc?.prependDeveloperInstructions,
+      right: next.prependDeveloperInstructions,
+    }),
+    appendDeveloperInstructions: concatOptionalTextSegments({
+      left: acc?.appendDeveloperInstructions,
+      right: next.appendDeveloperInstructions,
+    }),
+  });
+
+  const mergeBeforeDeveloperInstructions = (
+    acc: PluginHookBeforeDeveloperInstructionsResult | undefined,
+    next: PluginHookBeforeDeveloperInstructionsResult,
+  ): PluginHookBeforeDeveloperInstructionsResult => ({
     developerInstructions:
       typeof acc?.developerInstructions === "string"
         ? acc.developerInstructions
@@ -874,6 +897,18 @@ export function createHookRunner(
       ctx,
       { mergeResults: mergeBeforePromptBuild },
     );
+  }
+
+  async function runBeforeDeveloperInstructions(
+    event: PluginHookBeforeDeveloperInstructionsEvent,
+    ctx: PluginHookAgentContext,
+  ): Promise<PluginHookBeforeDeveloperInstructionsResult | undefined> {
+    return runModifyingHook<
+      "before_developer_instructions",
+      PluginHookBeforeDeveloperInstructionsResult
+    >("before_developer_instructions", event, ctx, {
+      mergeResults: mergeBeforeDeveloperInstructions,
+    });
   }
 
   async function runBeforeTurnDeveloperInstructions(
@@ -1660,6 +1695,7 @@ export function createHookRunner(
     // Agent hooks
     runBeforeModelResolve,
     runAgentTurnPrepare,
+    runBeforeDeveloperInstructions,
     runBeforePromptBuild,
     runBeforeTurnDeveloperInstructions,
     runBeforeAgentStart,
