@@ -85,7 +85,7 @@ function resolvePolytroposReleasesRoot() {
 }
 
 function resolveInventoryPath(headRef: string | undefined): string | null {
-  if (!headRef || !/^v.+-poly\.\d+$/.test(headRef)) {
+  if (!headRef || !/^v.+(?:\+|-)poly\.\d+$/.test(headRef)) {
     return null;
   }
   const releasesRoot = resolvePolytroposReleasesRoot();
@@ -97,13 +97,27 @@ function resolveInventoryPath(headRef: string | undefined): string | null {
   return fs.existsSync(legacyInventoryPath) ? legacyInventoryPath : inventoryPath;
 }
 
-function loadReleaseInventory(headRef: string | undefined): PackageInventory | null {
-  const inventoryPath = resolveInventoryPath(headRef);
+function loadReleaseInventory(params: {
+  headRef?: string;
+  inventoryPath?: string;
+}): PackageInventory | null {
+  const inventoryPath = params.inventoryPath
+    ? path.resolve(params.inventoryPath)
+    : resolveInventoryPath(params.headRef);
   if (!inventoryPath || !fs.existsSync(inventoryPath)) {
+    if (params.inventoryPath) {
+      throw new Error(`release inventory not found: ${inventoryPath}`);
+    }
     return null;
   }
   const parsed = JSON.parse(fs.readFileSync(inventoryPath, "utf8")) as PackageInventory;
-  return parsed && Array.isArray(parsed.packages) ? parsed : null;
+  if (parsed && Array.isArray(parsed.packages)) {
+    return parsed;
+  }
+  if (params.inventoryPath) {
+    throw new Error(`release inventory must contain a packages array: ${inventoryPath}`);
+  }
+  return null;
 }
 
 function resolveRecordedExtensionsDir(params: {
@@ -402,6 +416,7 @@ async function main() {
   const installedRoot = args[0];
   let baseRef: string | undefined;
   let headRef: string | undefined;
+  let inventoryPath: string | undefined;
   const repoRoot = process.cwd();
   if (!installedRoot) {
     throw new Error(
@@ -424,6 +439,13 @@ async function main() {
       }
       continue;
     }
+    if (arg === "--inventory-path") {
+      inventoryPath = args[++i];
+      if (!inventoryPath) {
+        throw new Error("--inventory-path requires a value");
+      }
+      continue;
+    }
     throw new Error(`Unknown argument: ${arg}`);
   }
   if (baseRef && !headRef) {
@@ -440,7 +462,7 @@ async function main() {
   );
   const cfg = getRuntimeConfig();
   const installRecords = await loadInstalledPluginIndexInstallRecords();
-  const inventory = loadReleaseInventory(headRef);
+  const inventory = loadReleaseInventory({ headRef, inventoryPath });
   const targets = resolveReleaseManagedNpmPluginTargets({
     repoRoot,
     installRecords,

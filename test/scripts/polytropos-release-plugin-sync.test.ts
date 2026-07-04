@@ -21,6 +21,7 @@ import {
   assertReleaseStoreConsistent,
   createSanitizedTemporaryConfigPath,
   ensureLegacyOpenClawPackageAlias,
+  ensureStateDirOpenClawPackageAlias,
   parseArgs,
   prepareInstallPackageInput,
   resolveLatestRunIdForTagFromRuns,
@@ -1027,6 +1028,30 @@ describe("polytropos release helpers", () => {
     });
   });
 
+  it("passes the resolved inventory path through to post-install plugin sync", () => {
+    const repoRoot = "/work/openclaw";
+    const installedRoot = "/tmp/npm-prefix/lib/node_modules/openclaw";
+    expect(
+      buildPostInstallPluginSyncCommand({
+        repoRoot,
+        installedRoot,
+        inventoryPath: "/tmp/polytropos/releases/current.json",
+        headRef: "v2026.6.2-poly.84",
+      }),
+    ).toEqual({
+      cmd: path.join(repoRoot, "node_modules", ".bin", "tsx"),
+      args: [
+        path.join(repoRoot, "scripts", "polytropos-release-plugin-sync.ts"),
+        installedRoot,
+        "--inventory-path",
+        "/tmp/polytropos/releases/current.json",
+        "--head-ref",
+        "v2026.6.2-poly.84",
+      ],
+      cwd: repoRoot,
+    });
+  });
+
   it("creates a legacy openclaw package alias after installing the scoped core package", () => {
     const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-legacy-alias-test-"));
     const npmRoot = path.join(root, "lib", "node_modules");
@@ -1047,6 +1072,39 @@ describe("polytropos release helpers", () => {
         logStream: process.stdout,
       });
       expect(aliasPath).toBe(path.join(npmRoot, "openclaw"));
+      expect(fs.lstatSync(aliasPath).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(aliasPath)).toBe(fs.realpathSync(installedRoot));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("creates a state-dir openclaw package alias for local load-path extensions", () => {
+    const root = fs.mkdtempSync(path.join("/tmp", "openclaw-polytropos-state-alias-test-"));
+    const stateDir = path.join(root, ".openclaw");
+    const installedRoot = path.join(
+      root,
+      "lib",
+      "node_modules",
+      "@joshuacwebdeveloper",
+      "openclaw-polytropos-core",
+    );
+    fs.mkdirSync(installedRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(installedRoot, "package.json"),
+      JSON.stringify({
+        name: "@joshuacwebdeveloper/openclaw-polytropos-core",
+        version: "2026.6.2-poly.84",
+      }),
+    );
+
+    try {
+      const aliasPath = ensureStateDirOpenClawPackageAlias({
+        stateDir,
+        installedRoot,
+        logStream: process.stdout,
+      });
+      expect(aliasPath).toBe(path.join(stateDir, "node_modules", "openclaw"));
       expect(fs.lstatSync(aliasPath).isSymbolicLink()).toBe(true);
       expect(fs.realpathSync(aliasPath)).toBe(fs.realpathSync(installedRoot));
     } finally {
