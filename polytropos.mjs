@@ -1,40 +1,214 @@
 #!/usr/bin/env node
 
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-export const DEFAULT_POLYTROPOS_CLI_CLAIMS = [
-  {
-    pluginId: "polytropos-codex",
-    commandPath: ["hooks", "relay"],
-    module: "./dist/cli/native-hook-relay-cli.js",
-    exportName: "runNativeHookRelayCli",
-    parseOptions: parseNativeHookRelayOptions,
-  },
-];
+const PLUGIN_ROOTS_ENV = "OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS";
 
-export function parseNativeHookRelayOptions(argv, startIndex) {
-  const optionNames = new Map([
-    ["--provider", "provider"],
-    ["--relay-id", "relayId"],
-    ["--generation", "generation"],
-    ["--event", "event"],
-    ["--pre-tool-use-unavailable", "preToolUseUnavailable"],
-    ["--timeout", "timeout"],
-  ]);
+function camelCaseFlag(flag) {
+  return flag.replace(/^--/, "").replace(/-([a-z])/gu, (_match, letter) => letter.toUpperCase());
+}
+
+function parseOptionName(flags) {
+  const match = flags.match(/--[A-Za-z0-9][A-Za-z0-9-]*/u);
+  return match ? camelCaseFlag(match[0]) : null;
+}
+
+function parseCommandOptions(command, argv, startIndex) {
   const options = {};
-  for (let index = startIndex; index < argv.length; index += 2) {
-    const flag = argv[index];
-    const name = optionNames.get(flag);
-    const value = argv[index + 1];
-    if (!name || value === undefined) {
-      throw new Error(`Invalid native hook relay argument: ${flag ?? ""}`);
+  for (const option of command.options) {
+    if (option.defaultValue !== undefined) {
+      options[option.name] = option.defaultValue;
     }
-    options[name] = value;
+  }
+  const optionByFlag = new Map(command.options.map((option) => [option.flag, option]));
+  for (let index = startIndex; index < argv.length; ) {
+    const flag = argv[index];
+    const option = optionByFlag.get(flag);
+    if (!option) {
+      throw new Error(`Invalid plugin CLI argument: ${flag ?? ""}`);
+    }
+    const value = argv[index + 1];
+    if (value === undefined) {
+      throw new Error(`Missing value for plugin CLI argument: ${flag}`);
+    }
+    options[option.name] = value;
+    index += 2;
+  }
+  for (const option of command.options) {
+    if (option.required && !options[option.name]) {
+      throw new Error(`Missing required plugin CLI argument: ${option.flag}`);
+    }
   }
   return options;
 }
 
-export function resolvePolytroposCliClaim(argv, claims = DEFAULT_POLYTROPOS_CLI_CLAIMS) {
+class CapturedCliCommand {
+  constructor(name) {
+    this.name = name;
+    this.children = [];
+    this.options = [];
+    this.actionHandler = null;
+  }
+
+  command(name) {
+    const child = new CapturedCliCommand(name.split(/\s+/u)[0] ?? name);
+    this.children.push(child);
+    return child;
+  }
+
+  description() {
+    return this;
+  }
+
+  requiredOption(flags) {
+    return this.addOption(flags, true);
+  }
+
+  option(flags, _description, defaultValue) {
+    return this.addOption(flags, false, defaultValue);
+  }
+
+  action(handler) {
+    this.actionHandler = handler;
+    return this;
+  }
+
+  addOption(flags, required, defaultValue) {
+    const flag = flags.match(/--[A-Za-z0-9][A-Za-z0-9-]*/u)?.[0];
+    const name = parseOptionName(flags);
+    if (flag && name) {
+      this.options.push({ flag, name, required, defaultValue });
+    }
+    return this;
+  }
+}
+
+function createPluginApiCapture(pluginId, cliRegistrars) {
+  const noop = () => {};
+  const api = {
+    id: pluginId,
+    name: pluginId,
+    source: "polytropos-launcher",
+    registrationMode: "cli-metadata",
+    config: {},
+    pluginConfig: {},
+    runtime: {},
+    logger: { info: noop, warn: noop, error: noop, debug: noop },
+    registerCli(registrar, opts = {}) {
+      const parentPath = Array.isArray(opts.parentPath) ? opts.parentPath.filter(Boolean) : [];
+      const commands = [
+        ...(Array.isArray(opts.commands) ? opts.commands : []),
+        ...(Array.isArray(opts.descriptors)
+          ? opts.descriptors.map((descriptor) => descriptor?.name).filter(Boolean)
+          : []),
+      ];
+      if (commands.length > 0) {
+        cliRegistrars.push({ pluginId, parentPath, commands, registrar });
+      }
+    },
+  };
+  return new Proxy(api, { get: (target, key) => (key in target ? target[key] : noop) });
+}
+
+function normalizePluginDefinition(moduleExports) {
+  const candidate = moduleExports.default ?? moduleExports;
+  if (typeof candidate === "function") {
+    return { register: candidate };
+  }
+  if (candidate && typeof candidate.register === "function") {
+    return candidate;
+  }
+  return null;
+}
+
+async function readPluginManifest(manifestPath) {
+  try {
+    const raw = await fs.readFile(manifestPath, "utf8");
+    const manifest = JSON.parse(raw);
+    if (!manifest || typeof manifest !== "object") {
+      return null;
+    }
+    const id = typeof manifest.id === "string" ? manifest.id.trim() : "";
+    const entry = typeof manifest.entry === "string" ? manifest.entry.trim() : "";
+    if (!id || !entry) {
+      return null;
+    }
+    return { id, entry, root: path.dirname(manifestPath) };
+  } catch {
+    return null;
+  }
+}
+
+async function findManifestInRoot(root) {
+  const direct = await readPluginManifest(path.join(root, "openclaw.plugin.json"));
+  if (direct) {
+    return [direct];
+  }
+  const packed = await readPluginManifest(path.join(root, "dist", "openclaw.plugin.json"));
+  if (packed) {
+    return [packed];
+  }
+  let entries;
+  try {
+    entries = await fs.readdir(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const manifests = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    manifests.push(...(await findManifestInRoot(path.join(root, entry.name))));
+  }
+  return manifests;
+}
+
+export function resolvePolytroposPluginRoots(env = process.env) {
+  const raw = env[PLUGIN_ROOTS_ENV];
+  if (!raw?.trim()) {
+    const stateDir = env.OPENCLAW_STATE_DIR?.trim() || path.join(os.homedir(), ".openclaw");
+    return [path.join(stateDir, "extensions")];
+  }
+  return raw
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+export async function loadPolytroposCliClaims(options = {}) {
+  const roots = options.roots ?? resolvePolytroposPluginRoots(options.env ?? process.env);
+  const manifests = (await Promise.all(roots.map((root) => findManifestInRoot(root)))).flat();
+  const claims = [];
+  for (const manifest of manifests) {
+    const cliRegistrars = [];
+    try {
+      const entryUrl = pathToFileURL(path.resolve(manifest.root, manifest.entry)).href;
+      const moduleExports = await import(entryUrl);
+      const plugin = normalizePluginDefinition(moduleExports);
+      plugin?.register?.(createPluginApiCapture(manifest.id, cliRegistrars));
+    } catch {
+      continue;
+    }
+    for (const entry of cliRegistrars) {
+      for (const command of entry.commands) {
+        claims.push({
+          pluginId: entry.pluginId,
+          commandPath: [...entry.parentPath, command],
+          registrar: entry.registrar,
+          parentPath: entry.parentPath,
+          command,
+        });
+      }
+    }
+  }
+  return claims;
+}
+
+export function resolvePolytroposCliClaim(argv, claims = []) {
   const args = argv.slice(2);
   let selected = null;
   for (const claim of claims) {
@@ -54,28 +228,37 @@ export function resolvePolytroposCliClaim(argv, claims = DEFAULT_POLYTROPOS_CLI_
 }
 
 export async function dispatchPolytroposCliClaim(claim, argv) {
-  const moduleExports = await import(claim.module);
-  const run = moduleExports[claim.exportName];
-  if (typeof run !== "function") {
-    throw new Error(
-      `Polytropos CLI claim ${claim.pluginId} missing handler export ${claim.exportName}`,
-    );
+  const parentCommand = new CapturedCliCommand(claim.parentPath.at(-1) ?? "openclaw");
+  await claim.registrar({
+    program: parentCommand,
+    parentPath: claim.parentPath,
+    config: {},
+    logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+  });
+  const command = parentCommand.children.find((child) => child.name === claim.command);
+  if (!command?.actionHandler) {
+    const commandPath = claim.commandPath.join(" ");
+    throw new Error(`Polytropos CLI claim ${claim.pluginId} did not bind ${commandPath}`);
   }
-  return await run(claim.parseOptions(argv, 2 + claim.commandPath.length));
+  const options = parseCommandOptions(command, argv, 2 + claim.commandPath.length);
+  const result = await command.actionHandler(options);
+  return typeof result === "number" ? result : (process.exitCode ?? 0);
 }
 
 export async function runPolytroposLauncher(argv = process.argv) {
   if (argv.length === 3 && argv[2] === "--version") {
     process.stdout.write("Polytropos CLI (OpenClaw fork)\n");
+    return true;
   }
 
-  const claim = resolvePolytroposCliClaim(argv);
+  const claim = resolvePolytroposCliClaim(argv, await loadPolytroposCliClaims());
   if (claim) {
     process.exitCode = await dispatchPolytroposCliClaim(claim, argv);
-    return;
+    return true;
   }
 
   await import("./openclaw.mjs");
+  return false;
 }
 
 function isMainModule() {
@@ -84,5 +267,7 @@ function isMainModule() {
 }
 
 if (isMainModule()) {
-  await runPolytroposLauncher(process.argv);
+  if (await runPolytroposLauncher(process.argv)) {
+    process.exit(process.exitCode ?? 0);
+  }
 }

@@ -5,40 +5,29 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { cleanupTempDirs, makeTempDir } from "./helpers/temp-dir.js";
 
 type PolytroposLauncherModule = {
-  DEFAULT_POLYTROPOS_CLI_CLAIMS: Array<{
-    pluginId: string;
-    commandPath: string[];
-    module: string;
-    exportName: string;
-    parseOptions: (argv: string[], startIndex: number) => unknown;
-  }>;
-  dispatchPolytroposCliClaim: (
-    claim: {
-      pluginId: string;
-      commandPath: string[];
-      module: string;
-      exportName: string;
-      parseOptions: (argv: string[], startIndex: number) => unknown;
-    },
-    argv: string[],
-  ) => Promise<number>;
-  parseNativeHookRelayOptions: (argv: string[], startIndex: number) => Record<string, string>;
+  loadPolytroposCliClaims: (options?: { roots?: string[] }) => Promise<PolytroposCliClaim[]>;
+  resolvePolytroposPluginRoots: (env?: Record<string, string | undefined>) => string[];
+  dispatchPolytroposCliClaim: (claim: PolytroposCliClaim, argv: string[]) => Promise<number>;
   resolvePolytroposCliClaim: (
     argv: string[],
-    claims?: Array<{
-      pluginId: string;
-      commandPath: string[];
-      module: string;
-      exportName: string;
-      parseOptions: (argv: string[], startIndex: number) => unknown;
-    }>,
-  ) => {
-    pluginId: string;
-    commandPath: string[];
-    module: string;
-    exportName: string;
-    parseOptions: (argv: string[], startIndex: number) => unknown;
-  } | null;
+    claims?: PolytroposCliClaim[],
+  ) => PolytroposCliClaim | null;
+};
+
+type PolytroposCliClaim = {
+  pluginId: string;
+  commandPath: string[];
+  parentPath: string[];
+  command: string;
+  registrar: (ctx: { program: PluginCommandRecorder }) => void | Promise<void>;
+};
+
+type PluginCommandRecorder = {
+  command(name: string, opts?: { hidden?: boolean }): PluginCommandRecorder;
+  description(text: string): PluginCommandRecorder;
+  requiredOption(flags: string, description: string): PluginCommandRecorder;
+  option(flags: string, description: string, defaultValue?: string): PluginCommandRecorder;
+  action(handler: (opts: Record<string, string>) => void | Promise<void>): PluginCommandRecorder;
 };
 
 let launcher: PolytroposLauncherModule;
@@ -59,19 +48,72 @@ describe("polytropos launcher claims", () => {
   afterEach(() => {
     cleanupTempDirs(fixtureRoots);
     delete (globalThis as { __polytroposDispatchOptions?: unknown }).__polytroposDispatchOptions;
+    process.exitCode = undefined;
   });
 
-  it("claims the configured plugin command path", () => {
-    const claim = launcher.resolvePolytroposCliClaim([
-      "/usr/bin/node",
-      "/opt/openclaw/polytropos.mjs",
-      "hooks",
-      "relay",
-      "--provider",
-      "codex",
-    ]);
+  async function writePluginFixture(
+    params: {
+      id?: string;
+      rootName?: string;
+      parentPath?: string[];
+      command?: string;
+      actionExitCode?: number;
+    } = {},
+  ) {
+    const extensionsRoot = makeTempDir(fixtureRoots, "polytropos-extensions-");
+    const pluginRoot = path.join(extensionsRoot, params.rootName ?? "polytropos-cli");
+    const manifestRoot = path.join(pluginRoot, "dist");
+    await fs.mkdir(manifestRoot, { recursive: true });
+    const id = params.id ?? "polytropos-cli";
+    await fs.writeFile(
+      path.join(manifestRoot, "openclaw.plugin.json"),
+      JSON.stringify({ id, entry: "index.mjs" }),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(manifestRoot, "index.mjs"),
+      [
+        "export default {",
+        "  register(api) {",
+        "    api.registerCli(({ program }) => {",
+        `      program.command(${JSON.stringify(params.command ?? "relay")}, { hidden: true })`,
+        "        .description('Internal native harness hook relay')",
+        "        .requiredOption('--provider <provider>', 'Native harness provider')",
+        "        .requiredOption('--relay-id <id>', 'Native hook relay id')",
+        "        .option('--generation <generation>', 'Native hook relay registration generation')",
+        "        .requiredOption('--event <event>', 'Native hook event')",
+        "        .option('--pre-tool-use-unavailable <mode>', 'PreToolUse fallback mode')",
+        "        .option('--timeout <ms>', 'Gateway timeout in ms', '5000')",
+        "        .action(async (opts) => {",
+        "          globalThis.__polytroposDispatchOptions = opts;",
+        `          process.exitCode = ${params.actionExitCode ?? 17};`,
+        "        });",
+        "    }, {",
+        `      parentPath: ${JSON.stringify(params.parentPath ?? ["hooks"])},`,
+        `      commands: [${JSON.stringify(params.command ?? "relay")}],`,
+        "      descriptors: [{",
+        `        name: ${JSON.stringify(params.command ?? "relay")},`,
+        "        description: 'Internal native harness hook relay',",
+        "        hasSubcommands: false,",
+        "      }],",
+        "    });",
+        "  },",
+        "};",
+      ].join("\n"),
+      "utf8",
+    );
+    return extensionsRoot;
+  }
 
-    expect(claim?.pluginId).toBe("polytropos-codex");
+  it("loads a plugin-owned claim for the plugin command path", async () => {
+    const extensionsRoot = await writePluginFixture();
+    const claims = await launcher.loadPolytroposCliClaims({ roots: [extensionsRoot] });
+    const claim = launcher.resolvePolytroposCliClaim(
+      ["/usr/bin/node", "/opt/openclaw/polytropos.mjs", "hooks", "relay", "--provider", "codex"],
+      claims,
+    );
+
+    expect(claim?.pluginId).toBe("polytropos-cli");
     expect(claim?.commandPath).toEqual(["hooks", "relay"]);
   });
 
@@ -87,21 +129,29 @@ describe("polytropos launcher claims", () => {
     ).toBeNull();
   });
 
+  it("resolves installed plugin roots from the active state dir", () => {
+    expect(
+      launcher.resolvePolytroposPluginRoots({
+        OPENCLAW_STATE_DIR: "/tmp/openclaw-state",
+      }),
+    ).toEqual([path.join("/tmp/openclaw-state", "extensions")]);
+  });
+
   it("selects the longest matching claim", () => {
     const claims = [
       {
         pluginId: "root-hooks",
         commandPath: ["hooks"],
-        module: "unused",
-        exportName: "unused",
-        parseOptions: () => ({}),
+        parentPath: [],
+        command: "hooks",
+        registrar: () => {},
       },
       {
         pluginId: "relay-hooks",
         commandPath: ["hooks", "relay"],
-        module: "unused",
-        exportName: "unused",
-        parseOptions: () => ({}),
+        parentPath: ["hooks"],
+        command: "relay",
+        registrar: () => {},
       },
     ];
 
@@ -113,67 +163,71 @@ describe("polytropos launcher claims", () => {
     expect(claim?.pluginId).toBe("relay-hooks");
   });
 
-  it("parses native hook relay options for the claimed handler", () => {
+  it("dispatches a claimed path through its plugin registrar action", async () => {
+    const extensionsRoot = await writePluginFixture();
+    const claims = await launcher.loadPolytroposCliClaims({ roots: [extensionsRoot] });
+    const claim = launcher.resolvePolytroposCliClaim(
+      ["/usr/bin/node", "/opt/openclaw/polytropos.mjs", "hooks", "relay"],
+      claims,
+    );
+
+    expect(claim).not.toBeNull();
+    const exitCode = await launcher.dispatchPolytroposCliClaim(claim!, [
+      "/usr/bin/node",
+      "/opt/openclaw/polytropos.mjs",
+      "hooks",
+      "relay",
+      "--provider",
+      "codex",
+      "--relay-id",
+      "relay-1",
+      "--generation",
+      "generation-1",
+      "--event",
+      "pre_tool_use",
+      "--pre-tool-use-unavailable",
+      "noop",
+      "--timeout",
+      "6000",
+    ]);
+
+    expect(exitCode).toBe(17);
     expect(
-      launcher.parseNativeHookRelayOptions(
-        [
-          "/usr/bin/node",
-          "/opt/openclaw/polytropos.mjs",
-          "hooks",
-          "relay",
-          "--provider",
-          "codex",
-          "--relay-id",
-          "relay-1",
-          "--generation",
-          "generation-1",
-          "--event",
-          "pre_tool_use",
-          "--pre-tool-use-unavailable",
-          "noop",
-          "--timeout",
-          "5000",
-        ],
-        4,
-      ),
+      (globalThis as { __polytroposDispatchOptions?: unknown }).__polytroposDispatchOptions,
     ).toEqual({
       provider: "codex",
       relayId: "relay-1",
       generation: "generation-1",
       event: "pre_tool_use",
       preToolUseUnavailable: "noop",
-      timeout: "5000",
+      timeout: "6000",
     });
   });
 
-  it("dispatches a claimed path through its plugin handler", async () => {
-    const fixtureRoot = makeTempDir(fixtureRoots, "polytropos-claim-");
-    const handlerPath = path.join(fixtureRoot, "handler.mjs");
-    await fs.writeFile(
-      handlerPath,
-      [
-        "export async function run(options) {",
-        "  globalThis.__polytroposDispatchOptions = options;",
-        "  return 17;",
-        "}",
-      ].join("\n"),
-      "utf8",
+  it("applies plugin option defaults during dispatch", async () => {
+    const extensionsRoot = await writePluginFixture();
+    const claims = await launcher.loadPolytroposCliClaims({ roots: [extensionsRoot] });
+    const claim = launcher.resolvePolytroposCliClaim(
+      ["/usr/bin/node", "/opt/openclaw/polytropos.mjs", "hooks", "relay"],
+      claims,
     );
 
-    const exitCode = await launcher.dispatchPolytroposCliClaim(
-      {
-        pluginId: "test-plugin",
-        commandPath: ["test", "claim"],
-        module: pathToFileURL(handlerPath).href,
-        exportName: "run",
-        parseOptions: (argv, startIndex) => ({ args: argv.slice(startIndex) }),
-      },
-      ["/usr/bin/node", "/opt/openclaw/polytropos.mjs", "test", "claim", "--flag"],
-    );
+    expect(claim).not.toBeNull();
+    await launcher.dispatchPolytroposCliClaim(claim!, [
+      "/usr/bin/node",
+      "/opt/openclaw/polytropos.mjs",
+      "hooks",
+      "relay",
+      "--provider",
+      "codex",
+      "--relay-id",
+      "relay-1",
+      "--event",
+      "permission_request",
+    ]);
 
-    expect(exitCode).toBe(17);
     expect(
       (globalThis as { __polytroposDispatchOptions?: unknown }).__polytroposDispatchOptions,
-    ).toEqual({ args: ["--flag"] });
+    ).toMatchObject({ timeout: "5000" });
   });
 });
