@@ -81,6 +81,62 @@ describe("polytropos launcher", () => {
     expect(result.stderr).toBe("");
   });
 
+  it("routes native hook relay directly to the lightweight relay entry", async () => {
+    const fixtureRoot = await makeLauncherFixture(fixtureRoots);
+    await fs.mkdir(path.join(fixtureRoot, "dist", "cli"), { recursive: true });
+    await fs.writeFile(
+      path.join(fixtureRoot, "dist", "entry.js"),
+      "throw new Error('normal CLI entry should not load for hooks relay');\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(fixtureRoot, "dist", "cli", "native-hook-relay-cli.js"),
+      [
+        "export async function runNativeHookRelayCli(options) {",
+        "  process.stdout.write(`${JSON.stringify(options)}\\n`);",
+        "  return 0;",
+        "}",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(fixtureRoot, "polytropos.mjs"),
+        "hooks",
+        "relay",
+        "--provider",
+        "codex",
+        "--relay-id",
+        "relay-1",
+        "--generation",
+        "generation-1",
+        "--event",
+        "pre_tool_use",
+        "--pre-tool-use-unavailable",
+        "noop",
+        "--timeout",
+        "5000",
+      ],
+      {
+        cwd: fixtureRoot,
+        encoding: "utf8",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      provider: "codex",
+      relayId: "relay-1",
+      generation: "generation-1",
+      event: "pre_tool_use",
+      preToolUseUnavailable: "noop",
+      timeout: "5000",
+    });
+    expect(result.stderr).toBe("");
+  });
+
   it("does not intercept subcommand version flags", async () => {
     const fixtureRoot = await makeLauncherFixture(fixtureRoots);
     await fs.writeFile(
