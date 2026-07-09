@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PLUGIN_ROOTS_ENV = "OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS";
+const DEBUG_ENV = "OPENCLAW_POLYTROPOS_CLI_DEBUG";
 const CLI_METADATA_ENTRY_BASENAMES = [
   "cli-metadata.ts",
   "cli-metadata.js",
@@ -213,6 +214,17 @@ function resolveConfigDir(env = process.env) {
 function isTruthyEnvValue(value) {
   const normalized = value?.trim().toLowerCase();
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
+function writePolytroposDebug(message, fields = {}, env = process.env) {
+  if (!isTruthyEnvValue(env[DEBUG_ENV])) {
+    return;
+  }
+  const suffix = Object.entries(fields)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(" ");
+  process.stderr.write(`[polytropos cli] ${message}${suffix ? ` ${suffix}` : ""}\n`);
 }
 
 function hasUsablePluginTree(root) {
@@ -621,7 +633,16 @@ async function runCoreLauncher(argv) {
 export async function runPolytroposLauncher(argv = process.argv) {
   const claim = resolvePolytroposCliClaim(argv, await loadPolytroposCliClaims());
   if (claim) {
+    writePolytroposDebug("dispatching plugin CLI claim", {
+      plugin: claim.pluginId,
+      command: claim.commandPath.join(" "),
+    });
     process.exitCode = await dispatchPolytroposCliClaim(claim, argv);
+    writePolytroposDebug("plugin CLI claim completed", {
+      plugin: claim.pluginId,
+      command: claim.commandPath.join(" "),
+      exitCode: process.exitCode,
+    });
     return true;
   }
 

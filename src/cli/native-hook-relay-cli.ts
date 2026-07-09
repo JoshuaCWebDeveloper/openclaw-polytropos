@@ -7,11 +7,9 @@ import {
 } from "../agents/harness/native-hook-relay.js";
 import { callGateway } from "../gateway/call.js";
 import { ADMIN_SCOPE } from "../gateway/method-scopes.js";
-import { createSubsystemLogger, type SubsystemLogger } from "../logging/subsystem.js";
 import { parseTimeoutMsWithFallback } from "./parse-timeout.js";
 
 const MAX_NATIVE_HOOK_STDIN_BYTES = 1024 * 1024;
-const log = createSubsystemLogger("cli/native-hook-relay");
 
 export type NativeHookRelayCliOptions = {
   provider?: string;
@@ -28,7 +26,6 @@ type NativeHookRelayCliDeps = {
   stderr?: NodeJS.WritableStream;
   invokeBridge?: typeof invokeNativeHookRelayBridge;
   callGateway?: typeof callGateway;
-  logger?: Pick<SubsystemLogger, "debug">;
 };
 
 export async function runNativeHookRelayCli(
@@ -40,14 +37,6 @@ export async function runNativeHookRelayCli(
   const stderr = deps.stderr ?? process.stderr;
   const invokeBridge = deps.invokeBridge ?? invokeNativeHookRelayBridge;
   const callGatewayFn = deps.callGateway ?? callGateway;
-  const logger = deps.logger ?? log;
-  logger.debug("native hook relay CLI parsing options", {
-    provider: opts.provider,
-    event: opts.event,
-    hasRelayId: Boolean(opts.relayId?.trim()),
-    hasGeneration: Boolean(opts.generation?.trim()),
-    timeout: opts.timeout,
-  });
   let provider: string;
   let relayId: string;
   let event: string;
@@ -56,9 +45,6 @@ export async function runNativeHookRelayCli(
     relayId = readRequiredOption(opts.relayId, "relay-id");
     event = readRequiredOption(opts.event, "event");
   } catch (error) {
-    logger.debug("native hook relay CLI option validation failed", {
-      error: formatErrorForLog(error),
-    });
     writeText(stderr, formatRelayCliError("invalid native hook relay options", error));
     return 1;
   }
@@ -67,12 +53,6 @@ export async function runNativeHookRelayCli(
   try {
     timeoutMs = parseTimeoutMsWithFallback(opts.timeout, 5_000);
   } catch (error) {
-    logger.debug("native hook relay CLI timeout validation failed", {
-      provider,
-      relayId,
-      event,
-      error: formatErrorForLog(error),
-    });
     writeText(stderr, formatRelayCliError("invalid native hook timeout", error));
     return 1;
   }
@@ -81,19 +61,7 @@ export async function runNativeHookRelayCli(
   try {
     const rawInput = await readStreamText(stdin, MAX_NATIVE_HOOK_STDIN_BYTES);
     rawPayload = rawInput.trim() ? JSON.parse(rawInput) : null;
-    logger.debug("native hook relay CLI input parsed", {
-      provider,
-      relayId,
-      event,
-      bytes: Buffer.byteLength(rawInput),
-    });
   } catch (error) {
-    logger.debug("native hook relay CLI input validation failed", {
-      provider,
-      relayId,
-      event,
-      error: formatErrorForLog(error),
-    });
     writeText(stderr, formatRelayCliError("failed to read native hook input", error));
     return 1;
   }
@@ -110,21 +78,9 @@ export async function runNativeHookRelayCli(
     });
     writeText(stdout, response.stdout);
     writeText(stderr, response.stderr);
-    logger.debug("native hook relay CLI bridge completed", {
-      provider,
-      relayId,
-      event,
-      exitCode: response.exitCode,
-    });
     return response.exitCode;
   } catch (error) {
     if (isNativeHookRelayBridgeStaleRegistrationError(error)) {
-      logger.debug("native hook relay CLI bridge stale registration", {
-        provider,
-        relayId,
-        event,
-        error: formatErrorForLog(error),
-      });
       writeText(stderr, formatRelayCliError("native hook relay unavailable", error));
       const response = renderNativeHookRelayUnavailableResponse({
         provider,
@@ -136,12 +92,6 @@ export async function runNativeHookRelayCli(
       writeText(stderr, response.stderr);
       return response.exitCode;
     }
-    logger.debug("native hook relay CLI bridge unavailable; trying gateway fallback", {
-      provider,
-      relayId,
-      event,
-      error: formatErrorForLog(error),
-    });
     // Fall through to the gateway path for embedded/local gateway cases and
     // older registrations that predate the direct relay bridge.
   }
@@ -155,20 +105,8 @@ export async function runNativeHookRelayCli(
     });
     writeText(stdout, response.stdout);
     writeText(stderr, response.stderr);
-    logger.debug("native hook relay CLI gateway fallback completed", {
-      provider,
-      relayId,
-      event,
-      exitCode: response.exitCode,
-    });
     return response.exitCode;
   } catch (error) {
-    logger.debug("native hook relay CLI gateway fallback failed", {
-      provider,
-      relayId,
-      event,
-      error: formatErrorForLog(error),
-    });
     writeText(stderr, formatRelayCliError("native hook relay unavailable", error));
     const response = renderNativeHookRelayUnavailableResponse({
       provider,
@@ -212,10 +150,6 @@ function writeText(stream: NodeJS.WritableStream, value: string | undefined): vo
 function formatRelayCliError(prefix: string, error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return `${prefix}: ${message}\n`;
-}
-
-function formatErrorForLog(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function createReadableTextStream(text: string): NodeJS.ReadableStream {

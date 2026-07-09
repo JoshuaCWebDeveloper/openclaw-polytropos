@@ -13,6 +13,7 @@ type PolytroposLauncherModule = {
   }) => Promise<PolytroposCliClaim[]>;
   resolvePolytroposPluginRoots: (env?: Record<string, string | undefined>) => string[];
   dispatchPolytroposCliClaim: (claim: PolytroposCliClaim, argv: string[]) => Promise<number>;
+  runPolytroposLauncher: (argv: string[]) => Promise<boolean>;
   resolvePolytroposCliClaim: (
     argv: string[],
     claims?: PolytroposCliClaim[],
@@ -365,6 +366,56 @@ describe("polytropos launcher claims", () => {
       preToolUseUnavailable: "noop",
       timeout: "6000",
     });
+  });
+
+  it("emits debug proof from the plugin-owned claim path when enabled", async () => {
+    const extensionsRoot = await writePluginFixture();
+    const previousRoots = process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+    const previousDebug = process.env.OPENCLAW_POLYTROPOS_CLI_DEBUG;
+    let stderr = "";
+    const originalWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = extensionsRoot;
+    process.env.OPENCLAW_POLYTROPOS_CLI_DEBUG = "1";
+    try {
+      await launcher.runPolytroposLauncher([
+        "/usr/bin/node",
+        "/opt/openclaw/polytropos.mjs",
+        "hooks",
+        "relay",
+        "--provider",
+        "codex",
+        "--relay-id",
+        "relay-1",
+        "--generation",
+        "generation-1",
+        "--event",
+        "pre_tool_use",
+      ]);
+    } finally {
+      process.stderr.write = originalWrite;
+      if (previousRoots === undefined) {
+        delete process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+      } else {
+        process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = previousRoots;
+      }
+      if (previousDebug === undefined) {
+        delete process.env.OPENCLAW_POLYTROPOS_CLI_DEBUG;
+      } else {
+        process.env.OPENCLAW_POLYTROPOS_CLI_DEBUG = previousDebug;
+      }
+    }
+
+    expect(process.exitCode).toBe(17);
+    expect(stderr).toContain(
+      "[polytropos cli] dispatching plugin CLI claim plugin=polytropos-cli command=hooks relay",
+    );
+    expect(stderr).toContain(
+      "[polytropos cli] plugin CLI claim completed plugin=polytropos-cli command=hooks relay exitCode=17",
+    );
   });
 
   it("renders claimed command help before required option validation", async () => {

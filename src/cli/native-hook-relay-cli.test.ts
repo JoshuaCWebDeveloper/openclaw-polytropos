@@ -82,7 +82,6 @@ describe("native hook relay CLI", () => {
   it("rejects malformed timeouts before reading relay input", async () => {
     const invokeBridge = vi.fn();
     const callGateway = vi.fn();
-    const logger = { debug: vi.fn() };
     const stdout = createWritableTextBuffer();
     const stderr = createWritableTextBuffer();
 
@@ -100,7 +99,6 @@ describe("native hook relay CLI", () => {
         stderr,
         invokeBridge: invokeBridge as never,
         callGateway: callGateway as never,
-        logger,
       },
     );
 
@@ -110,20 +108,11 @@ describe("native hook relay CLI", () => {
     expect(stderr.text()).toContain('Received: "5000ms"');
     expect(invokeBridge).not.toHaveBeenCalled();
     expect(callGateway).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(
-      "native hook relay CLI parsing options",
-      expect.objectContaining({ provider: "codex", event: "pre_tool_use", timeout: "5000ms" }),
-    );
-    expect(logger.debug).toHaveBeenCalledWith(
-      "native hook relay CLI timeout validation failed",
-      expect.objectContaining({ provider: "codex", relayId: "relay-1", event: "pre_tool_use" }),
-    );
   });
 
-  it("logs option validation failures before reading relay input", async () => {
+  it("rejects option validation failures before reading relay input", async () => {
     const invokeBridge = vi.fn();
     const callGateway = vi.fn();
-    const logger = { debug: vi.fn() };
     const stderr = createWritableTextBuffer();
 
     const exitCode = await runNativeHookRelayCli(
@@ -137,7 +126,6 @@ describe("native hook relay CLI", () => {
         stderr,
         invokeBridge: invokeBridge as never,
         callGateway: callGateway as never,
-        logger,
       },
     );
 
@@ -146,10 +134,6 @@ describe("native hook relay CLI", () => {
     expect(stderr.text()).toContain("Missing required option --relay-id");
     expect(invokeBridge).not.toHaveBeenCalled();
     expect(callGateway).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(
-      "native hook relay CLI option validation failed",
-      expect.objectContaining({ error: "Missing required option --relay-id" }),
-    );
   });
 
   it("rejects fractional timeouts before gateway fallback", async () => {
@@ -285,7 +269,6 @@ describe("native hook relay CLI", () => {
 
   it("returns a nonzero code for malformed hook input without touching the gateway", async () => {
     const callGateway = vi.fn();
-    const logger = { debug: vi.fn() };
     const stderr = createWritableTextBuffer();
 
     const exitCode = await runNativeHookRelayCli(
@@ -294,17 +277,12 @@ describe("native hook relay CLI", () => {
         stdin: createReadableTextStream("{nope"),
         stderr,
         callGateway: callGateway as never,
-        logger,
       },
     );
 
     expect(exitCode).toBe(1);
     expect(stderr.text()).toContain("failed to read native hook input");
     expect(callGateway).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(
-      "native hook relay CLI input validation failed",
-      expect.objectContaining({ provider: "codex", relayId: "relay-1", event: "pre_tool_use" }),
-    );
   });
 
   it("rejects oversized hook input without touching the gateway", async () => {
