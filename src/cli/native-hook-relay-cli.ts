@@ -39,9 +39,9 @@ export async function runNativeHookRelayCli(
   const callGatewayFn = deps.callGateway ?? callGateway;
   const provider = readRequiredOption(opts.provider, "provider");
   const relayId = readRequiredOption(opts.relayId, "relay-id");
-  const event = readRequiredOption(opts.event, "event");
-  const generation = opts.generation?.trim() || undefined;
-  let timeoutMs: number;
+const generation = opts.generation?.trim() || undefined;
+const event = readRequiredOption(opts.event, "event");
+let timeoutMs: number;
   try {
     timeoutMs = parseTimeoutMsWithFallback(opts.timeout, 5_000);
   } catch (error) {
