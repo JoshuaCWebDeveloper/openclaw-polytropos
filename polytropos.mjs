@@ -637,7 +637,12 @@ export async function runPolytroposLauncher(argv = process.argv) {
       plugin: claim.pluginId,
       command: claim.commandPath.join(" "),
     });
-    process.exitCode = await dispatchPolytroposCliClaim(claim, argv);
+    try {
+      process.exitCode = await dispatchPolytroposCliClaim(claim, argv);
+    } catch (error) {
+      process.exitCode = 1;
+      process.stderr.write(`${formatPolytroposLauncherError(error)}\n`);
+    }
     writePolytroposDebug("plugin CLI claim completed", {
       plugin: claim.pluginId,
       command: claim.commandPath.join(" "),
@@ -648,6 +653,11 @@ export async function runPolytroposLauncher(argv = process.argv) {
 
   process.exitCode = await runCoreLauncher(argv);
   return true;
+}
+
+function formatPolytroposLauncherError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return `polytropos launcher: ${message}`;
 }
 
 async function isMainModule() {

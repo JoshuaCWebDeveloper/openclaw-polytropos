@@ -37,17 +37,9 @@ export async function runNativeHookRelayCli(
   const stderr = deps.stderr ?? process.stderr;
   const invokeBridge = deps.invokeBridge ?? invokeNativeHookRelayBridge;
   const callGatewayFn = deps.callGateway ?? callGateway;
-  let provider: string;
-  let relayId: string;
-  let event: string;
-  try {
-    provider = readRequiredOption(opts.provider, "provider");
-    relayId = readRequiredOption(opts.relayId, "relay-id");
-    event = readRequiredOption(opts.event, "event");
-  } catch (error) {
-    writeText(stderr, formatRelayCliError("invalid native hook relay options", error));
-    return 1;
-  }
+  const provider = readRequiredOption(opts.provider, "provider");
+  const relayId = readRequiredOption(opts.relayId, "relay-id");
+  const event = readRequiredOption(opts.event, "event");
   const generation = opts.generation?.trim() || undefined;
   let timeoutMs: number;
   try {

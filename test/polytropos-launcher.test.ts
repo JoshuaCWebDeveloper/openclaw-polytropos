@@ -455,6 +455,45 @@ describe("polytropos launcher claims", () => {
     ).toBeUndefined();
   });
 
+  it("reports claimed command option failures from the launcher path", async () => {
+    const extensionsRoot = await writePluginFixture();
+    const previousRoots = process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+    let stderr = "";
+    const originalWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = extensionsRoot;
+    try {
+      await launcher.runPolytroposLauncher([
+        "/usr/bin/node",
+        "/opt/openclaw/polytropos.mjs",
+        "hooks",
+        "relay",
+        "--provider",
+        "codex",
+        "--event",
+        "pre_tool_use",
+      ]);
+    } finally {
+      process.stderr.write = originalWrite;
+      if (previousRoots === undefined) {
+        delete process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+      } else {
+        process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = previousRoots;
+      }
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr).toContain(
+      "polytropos launcher: Missing required plugin CLI argument: --relay-id",
+    );
+    expect(
+      (globalThis as { __polytroposDispatchOptions?: unknown }).__polytroposDispatchOptions,
+    ).toBeUndefined();
+  });
+
   it("applies plugin option defaults during dispatch", async () => {
     const extensionsRoot = await writePluginFixture();
     const claims = await loadCliClaims({ roots: [extensionsRoot] });
