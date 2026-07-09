@@ -3,17 +3,17 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { discoverOpenClawPlugins } from "../src/plugins/discovery.js";
 import { cleanupTempDirs, makeTempDir } from "./helpers/temp-dir.js";
 
 type PolytroposLauncherModule = {
   loadPolytroposCliClaims: (options?: {
     roots?: string[];
     env?: Record<string, string | undefined>;
-    discoverPlugins?: typeof discoverOpenClawPlugins;
+    workspaceDir?: string;
   }) => Promise<PolytroposCliClaim[]>;
   resolvePolytroposPluginRoots: (env?: Record<string, string | undefined>) => string[];
   dispatchPolytroposCliClaim: (claim: PolytroposCliClaim, argv: string[]) => Promise<number>;
+  runPolytroposLauncher: (argv: string[]) => Promise<boolean>;
   resolvePolytroposCliClaim: (
     argv: string[],
     claims?: PolytroposCliClaim[],
@@ -25,7 +25,8 @@ type PolytroposCliClaim = {
   commandPath: string[];
   parentPath: string[];
   command: string;
-  registrar: (ctx: { program: PluginCommandRecorder }) => void | Promise<void>;
+  registrar: ((ctx: { program: PluginCommandRecorder }) => void | Promise<void>) | null;
+  source?: string;
 };
 
 type PluginCommandRecorder = {
@@ -85,6 +86,25 @@ describe("polytropos launcher claims", () => {
       "utf8",
     );
     await fs.writeFile(
+      path.join(pluginRoot, "cli-metadata.mjs"),
+      [
+        "export default {",
+        "  register(api) {",
+        "    api.registerCli(() => {}, {",
+        `      parentPath: ${JSON.stringify(params.parentPath ?? ["hooks"])},`,
+        `      commands: [${JSON.stringify(params.command ?? "relay")}],`,
+        "      descriptors: [{",
+        `        name: ${JSON.stringify(params.command ?? "relay")},`,
+        "        description: 'Internal native harness hook relay',",
+        "        hasSubcommands: false,",
+        "      }],",
+        "    });",
+        "  },",
+        "};",
+      ].join("\n"),
+      "utf8",
+    );
+    await fs.writeFile(
       path.join(manifestRoot, "index.mjs"),
       [
         "export default {",
@@ -120,15 +140,9 @@ describe("polytropos launcher claims", () => {
   }
 
   function loadCliClaims(
-    options: Omit<
-      NonNullable<Parameters<PolytroposLauncherModule["loadPolytroposCliClaims"]>[0]>,
-      "discoverPlugins"
-    > = {},
+    options: NonNullable<Parameters<PolytroposLauncherModule["loadPolytroposCliClaims"]>[0]> = {},
   ) {
-    return launcher.loadPolytroposCliClaims({
-      ...options,
-      discoverPlugins: discoverOpenClawPlugins,
-    });
+    return launcher.loadPolytroposCliClaims(options);
   }
 
   it.runIf(process.platform !== "win32")(
@@ -145,14 +159,43 @@ describe("polytropos launcher claims", () => {
         env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
       });
 
-      expect(claims).toEqual([
-        expect.objectContaining({
-          pluginId: "polytropos-cli",
-          commandPath: ["hooks", "relay"],
-        }),
-      ]);
+      expect(claims).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            pluginId: "polytropos-cli",
+            commandPath: ["hooks", "relay"],
+          }),
+        ]),
+      );
     },
   );
+
+  it("keeps global plugin discovery when explicit Polytropos roots are present", async () => {
+    const explicitRoot = await writePluginFixture({ id: "explicit-cli", command: "explicit" });
+    const globalFixtureRoot = await writePluginFixture({ id: "global-cli", command: "global" });
+    const stateDir = makeTempDir(fixtureRoots, "polytropos-state-");
+    const extensionsRoot = path.join(stateDir, "extensions");
+    await fs.mkdir(extensionsRoot, { recursive: true });
+    await fs.rename(
+      path.join(globalFixtureRoot, "polytropos-cli"),
+      path.join(extensionsRoot, "global-cli"),
+    );
+
+    const claims = await loadCliClaims({
+      env: {
+        ...process.env,
+        OPENCLAW_STATE_DIR: stateDir,
+        OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS: explicitRoot,
+      },
+    });
+
+    expect(claims.map((claim) => claim.commandPath)).toEqual(
+      expect.arrayContaining([
+        ["hooks", "explicit"],
+        ["hooks", "global"],
+      ]),
+    );
+  });
 
   it("loads a plugin-owned claim for the plugin command path", async () => {
     const extensionsRoot = await writePluginFixture();
@@ -164,6 +207,42 @@ describe("polytropos launcher claims", () => {
 
     expect(claim?.pluginId).toBe("polytropos-cli");
     expect(claim?.commandPath).toEqual(["hooks", "relay"]);
+  });
+
+  it("does not import full plugin entries while discovering CLI claims", async () => {
+    const extensionsRoot = await writePluginFixture();
+    const marker = path.join(extensionsRoot, "full-entry-loaded.txt");
+    const pluginSource = path.join(extensionsRoot, "polytropos-cli", "dist", "index.mjs");
+    const currentSource = await fs.readFile(pluginSource, "utf8");
+    await fs.writeFile(
+      pluginSource,
+      [
+        "import fs from 'node:fs';",
+        `fs.writeFileSync(${JSON.stringify(marker)}, 'loaded');`,
+        currentSource,
+      ].join("\n"),
+      "utf8",
+    );
+
+    const claims = await loadCliClaims({ roots: [extensionsRoot] });
+
+    expect(claims.map((claim) => claim.commandPath)).toContainEqual(["hooks", "relay"]);
+    await expect(fs.stat(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("discovers plugin CLI claims for arbitrary command paths", async () => {
+    const extensionsRoot = await writePluginFixture({
+      parentPath: ["tools"],
+      command: "inspect",
+    });
+    const claims = await loadCliClaims({ roots: [extensionsRoot] });
+    const claim = launcher.resolvePolytroposCliClaim(
+      ["/usr/bin/node", "/opt/openclaw/polytropos.mjs", "tools", "inspect"],
+      claims,
+    );
+
+    expect(claim?.pluginId).toBe("polytropos-cli");
+    expect(claim?.commandPath).toEqual(["tools", "inspect"]);
   });
 
   it("falls back when only a sibling command path is present", () => {
@@ -287,6 +366,132 @@ describe("polytropos launcher claims", () => {
       preToolUseUnavailable: "noop",
       timeout: "6000",
     });
+  });
+
+  it("emits debug proof from the plugin-owned claim path when enabled", async () => {
+    const extensionsRoot = await writePluginFixture();
+    const previousRoots = process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+    const previousDebug = process.env.OPENCLAW_POLYTROPOS_CLI_DEBUG;
+    let stderr = "";
+    const originalWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = extensionsRoot;
+    process.env.OPENCLAW_POLYTROPOS_CLI_DEBUG = "1";
+    try {
+      await launcher.runPolytroposLauncher([
+        "/usr/bin/node",
+        "/opt/openclaw/polytropos.mjs",
+        "hooks",
+        "relay",
+        "--provider",
+        "codex",
+        "--relay-id",
+        "relay-1",
+        "--generation",
+        "generation-1",
+        "--event",
+        "pre_tool_use",
+      ]);
+    } finally {
+      process.stderr.write = originalWrite;
+      if (previousRoots === undefined) {
+        delete process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+      } else {
+        process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = previousRoots;
+      }
+      if (previousDebug === undefined) {
+        delete process.env.OPENCLAW_POLYTROPOS_CLI_DEBUG;
+      } else {
+        process.env.OPENCLAW_POLYTROPOS_CLI_DEBUG = previousDebug;
+      }
+    }
+
+    expect(process.exitCode).toBe(17);
+    expect(stderr).toContain(
+      "[polytropos cli] dispatching plugin CLI claim plugin=polytropos-cli command=hooks relay",
+    );
+    expect(stderr).toContain(
+      "[polytropos cli] plugin CLI claim completed plugin=polytropos-cli command=hooks relay exitCode=17",
+    );
+  });
+
+  it("renders claimed command help before required option validation", async () => {
+    const extensionsRoot = await writePluginFixture();
+    const claims = await loadCliClaims({ roots: [extensionsRoot] });
+    const claim = launcher.resolvePolytroposCliClaim(
+      ["/usr/bin/node", "/opt/openclaw/polytropos.mjs", "hooks", "relay"],
+      claims,
+    );
+
+    expect(claim).not.toBeNull();
+    let stdout = "";
+    const originalWrite = process.stdout.write;
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdout += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const exitCode = await launcher.dispatchPolytroposCliClaim(claim!, [
+        "/usr/bin/node",
+        "/opt/openclaw/polytropos.mjs",
+        "hooks",
+        "relay",
+        "--help",
+      ]);
+
+      expect(exitCode).toBe(0);
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+    expect(stdout).toContain("Usage: openclaw hooks relay [options]");
+    expect(stdout).toContain("Internal native harness hook relay");
+    expect(stdout).toContain("--provider <provider>");
+    expect(stdout).toContain("--relay-id <id>");
+    expect(
+      (globalThis as { __polytroposDispatchOptions?: unknown }).__polytroposDispatchOptions,
+    ).toBeUndefined();
+  });
+
+  it("reports claimed command option failures from the launcher path", async () => {
+    const extensionsRoot = await writePluginFixture();
+    const previousRoots = process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+    let stderr = "";
+    const originalWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = extensionsRoot;
+    try {
+      await launcher.runPolytroposLauncher([
+        "/usr/bin/node",
+        "/opt/openclaw/polytropos.mjs",
+        "hooks",
+        "relay",
+        "--provider",
+        "codex",
+        "--event",
+        "pre_tool_use",
+      ]);
+    } finally {
+      process.stderr.write = originalWrite;
+      if (previousRoots === undefined) {
+        delete process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+      } else {
+        process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = previousRoots;
+      }
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr).toContain(
+      "polytropos launcher: Missing required plugin CLI argument: --relay-id",
+    );
+    expect(
+      (globalThis as { __polytroposDispatchOptions?: unknown }).__polytroposDispatchOptions,
+    ).toBeUndefined();
   });
 
   it("applies plugin option defaults during dispatch", async () => {
