@@ -125,49 +125,6 @@ function normalizePluginDefinition(moduleExports) {
   return null;
 }
 
-async function readPluginManifest(manifestPath) {
-  try {
-    const raw = await fs.readFile(manifestPath, "utf8");
-    const manifest = JSON.parse(raw);
-    if (!manifest || typeof manifest !== "object") {
-      return null;
-    }
-    const id = typeof manifest.id === "string" ? manifest.id.trim() : "";
-    const entry = typeof manifest.entry === "string" ? manifest.entry.trim() : "";
-    if (!id || !entry) {
-      return null;
-    }
-    return { id, entry, root: path.dirname(manifestPath) };
-  } catch {
-    return null;
-  }
-}
-
-async function findManifestInRoot(root) {
-  const direct = await readPluginManifest(path.join(root, "openclaw.plugin.json"));
-  if (direct) {
-    return [direct];
-  }
-  const packed = await readPluginManifest(path.join(root, "dist", "openclaw.plugin.json"));
-  if (packed) {
-    return [packed];
-  }
-  let entries;
-  try {
-    entries = await fs.readdir(root, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const manifests = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-    manifests.push(...(await findManifestInRoot(path.join(root, entry.name))));
-  }
-  return manifests;
-}
-
 export function resolvePolytroposPluginRoots(env = process.env) {
   const raw = env[PLUGIN_ROOTS_ENV];
   if (!raw?.trim()) {
@@ -182,15 +139,21 @@ export function resolvePolytroposPluginRoots(env = process.env) {
 
 export async function loadPolytroposCliClaims(options = {}) {
   const roots = options.roots ?? resolvePolytroposPluginRoots(options.env ?? process.env);
-  const manifests = (await Promise.all(roots.map((root) => findManifestInRoot(root)))).flat();
+  const discoverOpenClawPlugins =
+    options.discoverPlugins ??
+    (await import(new URL("./dist/plugins/discovery.js", import.meta.url).href))
+      .discoverOpenClawPlugins;
+  const discovery = discoverOpenClawPlugins({
+    extraPaths: roots,
+    env: options.env ?? process.env,
+  });
   const claims = [];
-  for (const manifest of manifests) {
+  for (const candidate of discovery.candidates.filter((entry) => entry.origin === "config")) {
     const cliRegistrars = [];
     try {
-      const entryUrl = pathToFileURL(path.resolve(manifest.root, manifest.entry)).href;
-      const moduleExports = await import(entryUrl);
+      const moduleExports = await import(pathToFileURL(candidate.source).href);
       const plugin = normalizePluginDefinition(moduleExports);
-      plugin?.register?.(createPluginApiCapture(manifest.id, cliRegistrars));
+      plugin?.register?.(createPluginApiCapture(candidate.idHint, cliRegistrars));
     } catch {
       continue;
     }

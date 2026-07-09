@@ -268,6 +268,8 @@ function buildCoreDistEntries(): Record<string, string> {
     "server-close.runtime": "src/gateway/server-close.runtime.ts",
     "plugins/hook-runner-global": "src/plugins/hook-runner-global.ts",
     "plugins/memory-state": "src/plugins/memory-state.ts",
+    // Polytropos reuses cold core discovery without importing the plugin runtime loader.
+    "plugins/discovery": "src/plugins/discovery.ts",
     "plugins/synthetic-auth.runtime": "src/plugins/synthetic-auth.runtime.ts",
     "subagent-registry.runtime": "src/agents/subagent-registry.runtime.ts",
     "task-registry-control.runtime": "src/tasks/task-registry-control.runtime.ts",
