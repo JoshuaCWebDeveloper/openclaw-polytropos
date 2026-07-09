@@ -3,10 +3,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { discoverOpenClawPlugins } from "../src/plugins/discovery.js";
 import { cleanupTempDirs, makeTempDir } from "./helpers/temp-dir.js";
 
 type PolytroposLauncherModule = {
-  loadPolytroposCliClaims: (options?: { roots?: string[] }) => Promise<PolytroposCliClaim[]>;
+  loadPolytroposCliClaims: (options?: {
+    roots?: string[];
+    env?: Record<string, string | undefined>;
+    discoverPlugins?: typeof discoverOpenClawPlugins;
+  }) => Promise<PolytroposCliClaim[]>;
   resolvePolytroposPluginRoots: (env?: Record<string, string | undefined>) => string[];
   dispatchPolytroposCliClaim: (claim: PolytroposCliClaim, argv: string[]) => Promise<number>;
   resolvePolytroposCliClaim: (
@@ -67,8 +72,16 @@ describe("polytropos launcher claims", () => {
     await fs.mkdir(manifestRoot, { recursive: true });
     const id = params.id ?? "polytropos-cli";
     await fs.writeFile(
-      path.join(manifestRoot, "openclaw.plugin.json"),
-      JSON.stringify({ id, entry: "index.mjs" }),
+      path.join(pluginRoot, "package.json"),
+      JSON.stringify({
+        name: `@openclaw/${id}`,
+        openclaw: { extensions: ["./dist/index.mjs"] },
+      }),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(pluginRoot, "openclaw.plugin.json"),
+      JSON.stringify({ id }),
       "utf8",
     );
     await fs.writeFile(
@@ -106,9 +119,44 @@ describe("polytropos launcher claims", () => {
     return extensionsRoot;
   }
 
+  function loadCliClaims(
+    options: Omit<
+      NonNullable<Parameters<PolytroposLauncherModule["loadPolytroposCliClaims"]>[0]>,
+      "discoverPlugins"
+    > = {},
+  ) {
+    return launcher.loadPolytroposCliClaims({
+      ...options,
+      discoverPlugins: discoverOpenClawPlugins,
+    });
+  }
+
+  it.runIf(process.platform !== "win32")(
+    "discovers a symlinked plugin from the default extensions root",
+    async () => {
+      const sourceExtensionsRoot = await writePluginFixture();
+      const sourcePluginRoot = path.join(sourceExtensionsRoot, "polytropos-cli");
+      const stateDir = makeTempDir(fixtureRoots, "polytropos-state-");
+      const extensionsRoot = path.join(stateDir, "extensions");
+      await fs.mkdir(extensionsRoot, { recursive: true });
+      await fs.symlink(sourcePluginRoot, path.join(extensionsRoot, "polytropos-cli"), "dir");
+
+      const claims = await loadCliClaims({
+        env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+      });
+
+      expect(claims).toEqual([
+        expect.objectContaining({
+          pluginId: "polytropos-cli",
+          commandPath: ["hooks", "relay"],
+        }),
+      ]);
+    },
+  );
+
   it("loads a plugin-owned claim for the plugin command path", async () => {
     const extensionsRoot = await writePluginFixture();
-    const claims = await launcher.loadPolytroposCliClaims({ roots: [extensionsRoot] });
+    const claims = await loadCliClaims({ roots: [extensionsRoot] });
     const claim = launcher.resolvePolytroposCliClaim(
       ["/usr/bin/node", "/opt/openclaw/polytropos.mjs", "hooks", "relay", "--provider", "codex"],
       claims,
@@ -202,7 +250,7 @@ describe("polytropos launcher claims", () => {
 
   it("dispatches a claimed path through its plugin registrar action", async () => {
     const extensionsRoot = await writePluginFixture();
-    const claims = await launcher.loadPolytroposCliClaims({ roots: [extensionsRoot] });
+    const claims = await loadCliClaims({ roots: [extensionsRoot] });
     const claim = launcher.resolvePolytroposCliClaim(
       ["/usr/bin/node", "/opt/openclaw/polytropos.mjs", "hooks", "relay"],
       claims,
@@ -243,7 +291,7 @@ describe("polytropos launcher claims", () => {
 
   it("applies plugin option defaults during dispatch", async () => {
     const extensionsRoot = await writePluginFixture();
-    const claims = await launcher.loadPolytroposCliClaims({ roots: [extensionsRoot] });
+    const claims = await loadCliClaims({ roots: [extensionsRoot] });
     const claim = launcher.resolvePolytroposCliClaim(
       ["/usr/bin/node", "/opt/openclaw/polytropos.mjs", "hooks", "relay"],
       claims,
