@@ -1,3 +1,4 @@
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -129,6 +130,28 @@ describe("polytropos launcher claims", () => {
     ).toBeNull();
   });
 
+  it("falls back to the core launcher for --version", () => {
+    const result = spawnSync(
+      process.execPath,
+      [path.resolve(process.cwd(), "polytropos.mjs"), "--version"],
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toMatch(/^OpenClaw 2026\.6\.2/);
+  });
+
+  it("falls back to the core launcher for unclaimed root invocations", () => {
+    const result = spawnSync(process.execPath, [path.resolve(process.cwd(), "polytropos.mjs")], {
+      encoding: "utf8",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("missing dist/entry.(m)js");
+  });
+
   it("resolves installed plugin roots from the active state dir", () => {
     expect(
       launcher.resolvePolytroposPluginRoots({
@@ -136,6 +159,20 @@ describe("polytropos launcher claims", () => {
       }),
     ).toEqual([path.join("/tmp/openclaw-state", "extensions")]);
   });
+
+  it.runIf(process.platform !== "win32")(
+    "runs when invoked through an npm-style symlink",
+    async () => {
+      const binRoot = makeTempDir(fixtureRoots, "polytropos-bin-");
+      const launcherPath = path.resolve(process.cwd(), "polytropos.mjs");
+      const linkedLauncherPath = path.join(binRoot, "openclaw");
+      await fs.symlink(launcherPath, linkedLauncherPath);
+
+      expect(execFileSync(linkedLauncherPath, ["--version"], { encoding: "utf8" })).toMatch(
+        /^OpenClaw 2026\.6\.2/,
+      );
+    },
+  );
 
   it("selects the longest matching claim", () => {
     const claims = [
