@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PLUGIN_ROOTS_ENV = "OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS";
 
@@ -245,28 +246,52 @@ export async function dispatchPolytroposCliClaim(claim, argv) {
   return typeof result === "number" ? result : (process.exitCode ?? 0);
 }
 
-export async function runPolytroposLauncher(argv = process.argv) {
-  if (argv.length === 3 && argv[2] === "--version") {
-    process.stdout.write("Polytropos CLI (OpenClaw fork)\n");
-    return true;
-  }
+async function runCoreLauncher(argv) {
+  const launcherPath = fileURLToPath(new URL("./openclaw.mjs", import.meta.url));
+  return await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [launcherPath, ...argv.slice(2)], {
+      stdio: "inherit",
+      env: process.env,
+    });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (signal) {
+        resolve(1);
+        return;
+      }
+      resolve(code ?? 0);
+    });
+  });
+}
 
+export async function runPolytroposLauncher(argv = process.argv) {
   const claim = resolvePolytroposCliClaim(argv, await loadPolytroposCliClaims());
   if (claim) {
     process.exitCode = await dispatchPolytroposCliClaim(claim, argv);
     return true;
   }
 
-  await import("./openclaw.mjs");
-  return false;
+  process.exitCode = await runCoreLauncher(argv);
+  return true;
 }
 
-function isMainModule() {
+async function isMainModule() {
   const entry = process.argv[1];
-  return Boolean(entry) && import.meta.url === pathToFileURL(entry).href;
+  if (!entry) {
+    return false;
+  }
+  try {
+    const [modulePath, entryPath] = await Promise.all([
+      fs.realpath(fileURLToPath(import.meta.url)),
+      fs.realpath(entry),
+    ]);
+    return modulePath === entryPath;
+  } catch {
+    return import.meta.url === pathToFileURL(entry).href;
+  }
 }
 
-if (isMainModule()) {
+if (await isMainModule()) {
   if (await runPolytroposLauncher(process.argv)) {
     process.exit(process.exitCode ?? 0);
   }
