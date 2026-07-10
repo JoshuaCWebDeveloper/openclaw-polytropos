@@ -200,6 +200,40 @@ export function ensureLegacyOpenClawPackageAlias({ npmRoot, packageName, logStre
   return legacyRoot;
 }
 
+function resolveOpenClawStateDir(env = process.env) {
+  const configured = env.OPENCLAW_STATE_DIR?.trim();
+  if (configured) {
+    return resolveHomePath(configured, env);
+  }
+  return path.join(env.HOME || resolveHome(), ".openclaw");
+}
+
+export function ensureStateDirOpenClawPackageAlias({ stateDir, installedRoot, logStream }) {
+  if (!fs.existsSync(installedRoot)) {
+    throw new Error(
+      `installed package root not found for state dir alias repair: ${installedRoot}`,
+    );
+  }
+  const aliasPath = path.join(stateDir, "node_modules", "openclaw");
+  if (fs.existsSync(aliasPath)) {
+    try {
+      if (fs.realpathSync(aliasPath) === fs.realpathSync(installedRoot)) {
+        return aliasPath;
+      }
+    } catch {
+      // Replace broken or stale alias below.
+    }
+    moveAsideIfExists(logStream, aliasPath, "state dir openclaw compatibility alias");
+  }
+  fs.mkdirSync(path.dirname(aliasPath), { recursive: true });
+  fs.symlinkSync(path.relative(path.dirname(aliasPath), installedRoot), aliasPath);
+  banner(
+    logStream,
+    `Created state dir OpenClaw compatibility alias: ${aliasPath} -> ${path.relative(path.dirname(aliasPath), installedRoot)}`,
+  );
+  return aliasPath;
+}
+
 function readReleaseInventory(inventoryPath) {
   const parsed = JSON.parse(fs.readFileSync(inventoryPath, "utf8"));
   if (!parsed || !Array.isArray(parsed.packages)) {
@@ -1178,6 +1212,11 @@ async function runInstall({
         packageName: info.name,
         logStream,
       });
+      ensureStateDirOpenClawPackageAlias({
+        stateDir: resolveOpenClawStateDir(),
+        installedRoot: installedPackageRoot(npmRoot, info.name),
+        logStream,
+      });
     }
 
     banner(logStream, "Running Polytropos bundled plugin deps helper...");
@@ -1201,6 +1240,7 @@ async function runInstall({
       const pluginSyncCommand = buildPostInstallPluginSyncCommand({
         repoRoot: REPO_ROOT,
         installedRoot,
+        inventoryPath: effectiveInventoryPath ?? undefined,
         baseRef: effectiveBaseRef ?? undefined,
         headRef: effectiveHeadRef ?? undefined,
       });
