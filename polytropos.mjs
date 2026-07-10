@@ -598,29 +598,26 @@ export async function dispatchPolytroposCliClaim(claim, argv) {
   return typeof result === "number" ? result : (process.exitCode ?? 0);
 }
 
-async function runCoreLauncher(argv) {
+export async function runCoreLauncher(argv, deps = {}) {
   const launcherPath = fileURLToPath(new URL("./openclaw.mjs", import.meta.url));
   return await new Promise((resolve, reject) => {
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    const child = spawn(process.execPath, [launcherPath, ...argv.slice(2)], {
-      stdio: ["inherit", "pipe", "pipe"],
-      env: process.env,
+    const stdout = deps.stdout ?? process.stdout;
+    const stderr = deps.stderr ?? process.stderr;
+    const spawnImpl = deps.spawn ?? spawn;
+    const stdoutMode = stdout.isTTY ? "inherit" : "pipe";
+    const stderrMode = stderr.isTTY ? "inherit" : "pipe";
+    const child = spawnImpl(process.execPath, [launcherPath, ...argv.slice(2)], {
+      stdio: ["inherit", stdoutMode, stderrMode],
+      env: deps.env ?? process.env,
     });
     child.stdout?.on("data", (chunk) => {
-      stdoutChunks.push(chunk);
+      stdout.write(chunk);
     });
     child.stderr?.on("data", (chunk) => {
-      stderrChunks.push(chunk);
+      stderr.write(chunk);
     });
     child.once("error", reject);
     child.once("close", (code, signal) => {
-      for (const chunk of stdoutChunks) {
-        process.stdout.write(chunk);
-      }
-      for (const chunk of stderrChunks) {
-        process.stderr.write(chunk);
-      }
       if (signal) {
         resolve(1);
         return;
