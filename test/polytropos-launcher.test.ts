@@ -1,4 +1,5 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { EventEmitter, once } from "node:events";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -18,6 +19,15 @@ type PolytroposLauncherModule = {
     argv: string[],
     claims?: PolytroposCliClaim[],
   ) => PolytroposCliClaim | null;
+  runCoreLauncher: (
+    argv: string[],
+    deps?: {
+      spawn?: typeof spawn;
+      stdout?: { isTTY?: boolean; write: (chunk: Buffer | string) => void };
+      stderr?: { isTTY?: boolean; write: (chunk: Buffer | string) => void };
+      env?: Record<string, string | undefined>;
+    },
+  ) => Promise<number>;
 };
 
 type PolytroposCliClaim = {
@@ -277,6 +287,76 @@ describe("polytropos launcher claims", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("missing dist/entry.(m)js");
+  });
+
+  it("passes piped core launcher output through before the child exits", async () => {
+    const child = new EventEmitter() as ReturnType<typeof spawn>;
+    child.stdout = new EventEmitter() as ReturnType<typeof spawn>["stdout"];
+    child.stderr = new EventEmitter() as ReturnType<typeof spawn>["stderr"];
+    const stdoutWrites: string[] = [];
+    const stderrWrites: string[] = [];
+    const spawnCalls: unknown[] = [];
+
+    const exitCodePromise = launcher.runCoreLauncher(
+      ["/usr/bin/node", "/opt/openclaw/polytropos.mjs", "logs", "--follow"],
+      {
+        spawn: ((...args: unknown[]) => {
+          spawnCalls.push(args);
+          return child;
+        }) as typeof spawn,
+        stdout: {
+          isTTY: false,
+          write: (chunk) => {
+            stdoutWrites.push(String(chunk));
+          },
+        },
+        stderr: {
+          isTTY: false,
+          write: (chunk) => {
+            stderrWrites.push(String(chunk));
+          },
+        },
+      },
+    );
+
+    child.stdout.emit("data", Buffer.from("openclaw child started\n"));
+    child.stderr.emit("data", Buffer.from("openclaw child stderr\n"));
+
+    expect(stdoutWrites).toEqual(["openclaw child started\n"]);
+    expect(stderrWrites).toEqual(["openclaw child stderr\n"]);
+    expect(spawnCalls[0]).toMatchObject([
+      process.execPath,
+      [expect.stringContaining("openclaw.mjs"), "logs", "--follow"],
+      { stdio: ["inherit", "pipe", "pipe"] },
+    ]);
+
+    child.emit("close", 0, null);
+    await expect(exitCodePromise).resolves.toBe(0);
+  });
+
+  it("preserves TTY stdio for the core launcher fallback", async () => {
+    const child = new EventEmitter() as ReturnType<typeof spawn>;
+    const spawnCalls: unknown[] = [];
+
+    const exitCodePromise = launcher.runCoreLauncher(
+      ["/usr/bin/node", "/opt/openclaw/polytropos.mjs", "logs", "--follow"],
+      {
+        spawn: ((...args: unknown[]) => {
+          spawnCalls.push(args);
+          return child;
+        }) as typeof spawn,
+        stdout: { isTTY: true, write: () => {} },
+        stderr: { isTTY: true, write: () => {} },
+      },
+    );
+    child.emit("close", 0, null);
+
+    await expect(exitCodePromise).resolves.toBe(0);
+    expect(spawnCalls[0]).toMatchObject([
+      process.execPath,
+      [expect.stringContaining("openclaw.mjs"), "logs", "--follow"],
+      { stdio: ["inherit", "inherit", "inherit"] },
+    ]);
   });
 
   it("resolves installed plugin roots from the active state dir", () => {
