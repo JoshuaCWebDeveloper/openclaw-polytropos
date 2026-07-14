@@ -65,6 +65,7 @@ describe("polytropos launcher claims", () => {
   afterEach(() => {
     cleanupTempDirs(fixtureRoots);
     delete (globalThis as { __polytroposDispatchOptions?: unknown }).__polytroposDispatchOptions;
+    delete process.env.OPENCLAW_POLYTROPOS_CLI_LOG_PATH;
     process.exitCode = undefined;
   });
 
@@ -533,6 +534,129 @@ describe("polytropos launcher claims", () => {
     expect(
       (globalThis as { __polytroposDispatchOptions?: unknown }).__polytroposDispatchOptions,
     ).toBeUndefined();
+  });
+
+  it("keeps claimed relay help on the core terminal color path", async () => {
+    const extensionsRoot = await writePluginFixture();
+    const claims = await loadCliClaims({ roots: [extensionsRoot] });
+    const claim = launcher.resolvePolytroposCliClaim(
+      ["/usr/bin/node", "/opt/openclaw/polytropos.mjs", "hooks", "relay", "--help"],
+      claims,
+    );
+    const previousForceColor = process.env.FORCE_COLOR;
+    const previousNoColor = process.env.NO_COLOR;
+    let stdout = "";
+    const originalWrite = process.stdout.write;
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdout += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+    process.env.FORCE_COLOR = "1";
+    delete process.env.NO_COLOR;
+    try {
+      const exitCode = await launcher.dispatchPolytroposCliClaim(claim!, [
+        "/usr/bin/node",
+        "/opt/openclaw/polytropos.mjs",
+        "hooks",
+        "relay",
+        "--help",
+      ]);
+
+      expect(exitCode).toBe(0);
+    } finally {
+      process.stdout.write = originalWrite;
+      if (previousForceColor === undefined) {
+        delete process.env.FORCE_COLOR;
+      } else {
+        process.env.FORCE_COLOR = previousForceColor;
+      }
+      if (previousNoColor === undefined) {
+        delete process.env.NO_COLOR;
+      } else {
+        process.env.NO_COLOR = previousNoColor;
+      }
+    }
+
+    const plainStdout = stdout.replace(/\u001b\[[0-9;]*m/gu, "");
+    expect(stdout).toContain("\u001b[");
+    expect(plainStdout).toContain("Usage: openclaw hooks relay [options]");
+    expect(plainStdout).toContain("--relay-id <id>");
+  });
+
+  it("records claimed relay probe help in gateway-visible logs without stderr proof markers", async () => {
+    const extensionsRoot = await writePluginFixture();
+    const previousRoots = process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+    const previousDebug = process.env.OPENCLAW_POLYTROPOS_CLI_DEBUG;
+    const logPath = path.join(makeTempDir(fixtureRoots, "polytropos-gateway-log-"), "gateway.log");
+    let stderr = "";
+    const originalStdoutWrite = process.stdout.write;
+    const originalWrite = process.stderr.write;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = extensionsRoot;
+    process.env.OPENCLAW_POLYTROPOS_CLI_LOG_PATH = logPath;
+    delete process.env.OPENCLAW_POLYTROPOS_CLI_DEBUG;
+    try {
+      await launcher.runPolytroposLauncher([
+        "/usr/bin/node",
+        "/opt/openclaw/polytropos.mjs",
+        "hooks",
+        "relay",
+        "--help",
+      ]);
+    } finally {
+      process.stdout.write = originalStdoutWrite;
+      process.stderr.write = originalWrite;
+      if (previousRoots === undefined) {
+        delete process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+      } else {
+        process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = previousRoots;
+      }
+      if (previousDebug === undefined) {
+        delete process.env.OPENCLAW_POLYTROPOS_CLI_DEBUG;
+      } else {
+        process.env.OPENCLAW_POLYTROPOS_CLI_DEBUG = previousDebug;
+      }
+    }
+
+    const logText = await fs.readFile(logPath, "utf8");
+    expect(logText).toContain("polytropos cli: claimed hooks relay probe");
+    expect(logText).toContain('command="openclaw hooks relay --help"');
+    expect(stderr).not.toContain("[polytropos cli]");
+  });
+
+  it("records claimed relay validation fallback in gateway-visible logs", async () => {
+    const extensionsRoot = await writePluginFixture();
+    const previousRoots = process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+    const logPath = path.join(makeTempDir(fixtureRoots, "polytropos-gateway-log-"), "gateway.log");
+    const originalWrite = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = extensionsRoot;
+    process.env.OPENCLAW_POLYTROPOS_CLI_LOG_PATH = logPath;
+    try {
+      await launcher.runPolytroposLauncher([
+        "/usr/bin/node",
+        "/opt/openclaw/polytropos.mjs",
+        "hooks",
+        "relay",
+      ]);
+    } finally {
+      process.stderr.write = originalWrite;
+      if (previousRoots === undefined) {
+        delete process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+      } else {
+        process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = previousRoots;
+      }
+    }
+
+    const logText = await fs.readFile(logPath, "utf8");
+    expect(process.exitCode).toBe(1);
+    expect(logText).toContain("polytropos cli: claimed hooks relay probe");
+    expect(logText).toContain('command="openclaw hooks relay"');
+    expect(logText).toContain("exitCode=1");
   });
 
   it("reports claimed command option failures from the launcher path", async () => {

@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PLUGIN_ROOTS_ENV = "OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS";
 const DEBUG_ENV = "OPENCLAW_POLYTROPOS_CLI_DEBUG";
+const LOG_PATH_ENV = "OPENCLAW_POLYTROPOS_CLI_LOG_PATH";
 const CLI_METADATA_ENTRY_BASENAMES = [
   "cli-metadata.ts",
   "cli-metadata.js",
@@ -71,18 +72,20 @@ function isHelpArg(value) {
 }
 
 function formatCommandHelp(command, commandPath) {
+  const heading = (value) => colorizeAnsi(value, "1;38;5;39");
+  const optionText = (value) => colorizeAnsi(value, "38;5;214");
   const lines = [
-    `Usage: openclaw ${commandPath.join(" ")} [options]`,
+    `${heading("Usage:")} openclaw ${commandPath.join(" ")} [options]`,
     "",
     command.descriptionText ? `${command.descriptionText}\n` : "",
-    "Options:",
+    `${heading("Options:")}`,
   ].filter((line) => line !== "");
   for (const option of command.options) {
     const required = option.required ? " (required)" : "";
     const description = option.descriptionText ? `  ${option.descriptionText}` : "";
-    lines.push(`  ${option.flags}${description}${required}`);
+    lines.push(`  ${optionText(option.flags)}${description}${required}`);
   }
-  lines.push("  -h, --help  display help for command", "");
+  lines.push(`  ${optionText("-h, --help")}  display help for command`, "");
   return lines.join("\n");
 }
 
@@ -214,6 +217,92 @@ function resolveConfigDir(env = process.env) {
 function isTruthyEnvValue(value) {
   const normalized = value?.trim().toLowerCase();
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
+function shouldUseAnsiColor(env = process.env) {
+  if (env.NO_COLOR && !env.FORCE_COLOR) {
+    return false;
+  }
+  return isTruthyEnvValue(env.FORCE_COLOR);
+}
+
+function colorizeAnsi(value, code, env = process.env) {
+  return shouldUseAnsiColor(env) ? `\u001b[${code}m${value}\u001b[0m` : value;
+}
+
+function quoteLogValue(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === "boolean") {
+    return String(value);
+  }
+  return `"${String(value).replace(/[\\\n\r"]/gu, (match) => {
+    if (match === "\\") {
+      return "\\\\";
+    }
+    if (match === "\n") {
+      return "\\n";
+    }
+    if (match === "\r") {
+      return "\\r";
+    }
+    return '\\"';
+  })}"`;
+}
+
+function formatLocalDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function resolveConfigPath(env = process.env) {
+  const override = env.OPENCLAW_CONFIG_PATH?.trim();
+  if (override) {
+    return resolveUserPath(override, env);
+  }
+  return path.join(resolveConfigDir(env), "openclaw.json");
+}
+
+function readConfiguredLogFile(env = process.env) {
+  try {
+    const parsed = JSON.parse(fsSync.readFileSync(resolveConfigPath(env), "utf8"));
+    const configured = parsed?.logging?.file;
+    return typeof configured === "string" && configured.trim()
+      ? resolveUserPath(configured.trim(), env)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveDefaultOpenClawLogFile() {
+  return path.join(os.tmpdir(), "openclaw", `openclaw-${formatLocalDate(new Date())}.log`);
+}
+
+function resolvePolytroposCliLogPath(env = process.env) {
+  const override = env[LOG_PATH_ENV]?.trim();
+  if (override) {
+    return resolveUserPath(override, env);
+  }
+  return readConfiguredLogFile(env) ?? resolveDefaultOpenClawLogFile();
+}
+
+function writePolytroposProbeLog(message, fields = {}, env = process.env) {
+  const logPath = resolvePolytroposCliLogPath(env);
+  const suffix = Object.entries(fields)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => `${key}=${quoteLogValue(value)}`)
+    .join(" ");
+  const line = `${new Date().toISOString()} info polytropos cli: ${message}${suffix ? ` ${suffix}` : ""}\n`;
+  try {
+    fsSync.mkdirSync(path.dirname(logPath), { recursive: true });
+    fsSync.appendFileSync(logPath, line, "utf8");
+  } catch {
+    // Best-effort observability only; hook relay stdout/stderr remain provider protocol.
+  }
 }
 
 function writePolytroposDebug(message, fields = {}, env = process.env) {
@@ -628,6 +717,10 @@ export async function runCoreLauncher(argv, deps = {}) {
 }
 
 export async function runPolytroposLauncher(argv = process.argv) {
+  if (argv.includes("--no-color")) {
+    process.env.NO_COLOR = "1";
+    process.env.FORCE_COLOR = "0";
+  }
   const claim = resolvePolytroposCliClaim(argv, await loadPolytroposCliClaims());
   if (claim) {
     writePolytroposDebug("dispatching plugin CLI claim", {
@@ -645,10 +738,23 @@ export async function runPolytroposLauncher(argv = process.argv) {
       command: claim.commandPath.join(" "),
       exitCode: process.exitCode,
     });
+    if (claim.commandPath.join(" ") === "hooks relay") {
+      writePolytroposProbeLog("claimed hooks relay probe", {
+        plugin: claim.pluginId,
+        command: `openclaw ${argv.slice(2).join(" ")}`.trim(),
+        exitCode: process.exitCode,
+      });
+    }
     return true;
   }
 
   process.exitCode = await runCoreLauncher(argv);
+  if (argv.slice(2, 4).join(" ") === "hooks relay") {
+    writePolytroposProbeLog("fallback hooks relay probe", {
+      command: `openclaw ${argv.slice(2).join(" ")}`.trim(),
+      exitCode: process.exitCode,
+    });
+  }
   return true;
 }
 
