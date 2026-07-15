@@ -71,9 +71,48 @@ function isHelpArg(value) {
   return value === "--help" || value === "-h";
 }
 
-function formatCommandHelp(command, commandPath) {
-  const heading = (value) => colorizeAnsi(value, "1;38;5;39");
-  const optionText = (value) => colorizeAnsi(value, "38;5;214");
+let coreCliRuntimePromise;
+let coreLoggingRuntimePromise;
+
+async function importFirstAvailableModule(specifiers) {
+  for (const specifier of specifiers) {
+    try {
+      return await import(specifier);
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+async function loadCoreCliRuntime() {
+  coreCliRuntimePromise ??= importFirstAvailableModule([
+    new URL("./dist/plugin-sdk/cli-runtime.js", import.meta.url).href,
+    new URL("./src/plugin-sdk/cli-runtime.ts", import.meta.url).href,
+    new URL("./packages/terminal-core/dist/theme.mjs", import.meta.url).href,
+  ]);
+  return await coreCliRuntimePromise;
+}
+
+async function loadCoreLoggingRuntime() {
+  coreLoggingRuntimePromise ??= importFirstAvailableModule([
+    new URL("./dist/plugin-sdk/runtime.js", import.meta.url).href,
+    new URL("./src/logging.ts", import.meta.url).href,
+  ]);
+  return await coreLoggingRuntimePromise;
+}
+
+async function formatCommandHelp(command, commandPath) {
+  const cliRuntime = await loadCoreCliRuntime();
+  const coreTheme = cliRuntime?.theme;
+  const heading =
+    typeof coreTheme?.heading === "function"
+      ? coreTheme.heading
+      : (value) => colorizeAnsi(value, "1;38;5;39");
+  const optionText =
+    typeof coreTheme?.option === "function"
+      ? coreTheme.option
+      : (value) => colorizeAnsi(value, "38;5;214");
   const lines = [
     `${heading("Usage:")} openclaw ${commandPath.join(" ")} [options]`,
     "",
@@ -290,7 +329,24 @@ function resolvePolytroposCliLogPath(env = process.env) {
   return readConfiguredLogFile(env) ?? resolveDefaultOpenClawLogFile();
 }
 
-function writePolytroposProbeLog(message, fields = {}, env = process.env) {
+async function writePolytroposProbeLog(message, fields = {}, env = process.env) {
+  const loggingRuntime = await loadCoreLoggingRuntime();
+  if (
+    typeof loggingRuntime?.getLogger === "function" &&
+    typeof loggingRuntime?.setLoggerOverride === "function"
+  ) {
+    const override = env[LOG_PATH_ENV]?.trim();
+    if (override) {
+      loggingRuntime.setLoggerOverride({
+        level: "info",
+        consoleLevel: "silent",
+        file: resolveUserPath(override, env),
+      });
+    }
+    loggingRuntime.getLogger().info(fields, message);
+    return;
+  }
+
   const logPath = resolvePolytroposCliLogPath(env);
   const suffix = Object.entries(fields)
     .filter(([, value]) => value !== undefined && value !== null && value !== "")
@@ -679,7 +735,7 @@ export async function dispatchPolytroposCliClaim(claim, argv) {
     throw new Error(`Polytropos CLI claim ${claim.pluginId} did not bind ${commandPath}`);
   }
   if (argv.slice(2 + claim.commandPath.length).some(isHelpArg)) {
-    process.stdout.write(formatCommandHelp(command, claim.commandPath));
+    process.stdout.write(await formatCommandHelp(command, claim.commandPath));
     return 0;
   }
   const options = parseCommandOptions(command, argv, 2 + claim.commandPath.length);
@@ -739,7 +795,7 @@ export async function runPolytroposLauncher(argv = process.argv) {
       exitCode: process.exitCode,
     });
     if (claim.commandPath.join(" ") === "hooks relay") {
-      writePolytroposProbeLog("claimed hooks relay probe", {
+      await writePolytroposProbeLog("claimed hooks relay probe", {
         plugin: claim.pluginId,
         command: `openclaw ${argv.slice(2).join(" ")}`.trim(),
         exitCode: process.exitCode,
@@ -750,7 +806,7 @@ export async function runPolytroposLauncher(argv = process.argv) {
 
   process.exitCode = await runCoreLauncher(argv);
   if (argv.slice(2, 4).join(" ") === "hooks relay") {
-    writePolytroposProbeLog("fallback hooks relay probe", {
+    await writePolytroposProbeLog("fallback hooks relay probe", {
       command: `openclaw ${argv.slice(2).join(" ")}`.trim(),
       exitCode: process.exitCode,
     });

@@ -578,7 +578,9 @@ describe("polytropos launcher claims", () => {
     }
 
     const plainStdout = stdout.replace(/\u001b\[[0-9;]*m/gu, "");
-    expect(stdout).toContain("\u001b[");
+    const { theme } = await import("../packages/terminal-core/src/theme.js");
+    expect(stdout).toContain(theme.heading("Usage:"));
+    expect(stdout).toContain(theme.option("--relay-id <id>"));
     expect(plainStdout).toContain("Usage: openclaw hooks relay [options]");
     expect(plainStdout).toContain("--relay-id <id>");
   });
@@ -623,8 +625,25 @@ describe("polytropos launcher claims", () => {
     }
 
     const logText = await fs.readFile(logPath, "utf8");
-    expect(logText).toContain("polytropos cli: claimed hooks relay probe");
-    expect(logText).toContain('command="openclaw hooks relay --help"');
+    const records = logText
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: "claimed hooks relay probe",
+          time: expect.any(String),
+          hostname: expect.any(String),
+          _meta: expect.objectContaining({ logLevelName: "INFO" }),
+          "0": expect.objectContaining({
+            command: "openclaw hooks relay --help",
+            plugin: "polytropos-cli",
+            exitCode: 0,
+          }),
+        }),
+      ]),
+    );
     expect(stderr).not.toContain("[polytropos cli]");
   });
 
@@ -653,10 +672,26 @@ describe("polytropos launcher claims", () => {
     }
 
     const logText = await fs.readFile(logPath, "utf8");
+    const records = logText
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
     expect(process.exitCode).toBe(1);
-    expect(logText).toContain("polytropos cli: claimed hooks relay probe");
-    expect(logText).toContain('command="openclaw hooks relay"');
-    expect(logText).toContain("exitCode=1");
+    expect(records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: "claimed hooks relay probe",
+          time: expect.any(String),
+          hostname: expect.any(String),
+          _meta: expect.objectContaining({ logLevelName: "INFO" }),
+          "0": expect.objectContaining({
+            command: "openclaw hooks relay",
+            plugin: "polytropos-cli",
+            exitCode: 1,
+          }),
+        }),
+      ]),
+    );
   });
 
   it("reports claimed command option failures from the launcher path", async () => {
