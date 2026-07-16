@@ -72,7 +72,7 @@ function isHelpArg(value) {
 }
 
 let coreCliRuntimePromise;
-let coreLoggingRuntimePromise;
+let coreFileLogRecordBuilderPromise;
 
 async function importFirstAvailableModule(specifiers) {
   for (const specifier of specifiers) {
@@ -94,12 +94,12 @@ async function loadCoreCliRuntime() {
   return await coreCliRuntimePromise;
 }
 
-async function loadCoreLoggingRuntime() {
-  coreLoggingRuntimePromise ??= importFirstAvailableModule([
-    new URL("./dist/plugin-sdk/runtime.js", import.meta.url).href,
-    new URL("./src/logging.ts", import.meta.url).href,
+async function loadCoreFileLogRecordBuilder() {
+  coreFileLogRecordBuilderPromise ??= importFirstAvailableModule([
+    new URL("./dist/logging/file-log-record.js", import.meta.url).href,
+    new URL("./src/logging/file-log-record.ts", import.meta.url).href,
   ]);
-  return await coreLoggingRuntimePromise;
+  return await coreFileLogRecordBuilderPromise;
 }
 
 async function formatCommandHelp(command, commandPath) {
@@ -269,27 +269,6 @@ function colorizeAnsi(value, code, env = process.env) {
   return shouldUseAnsiColor(env) ? `\u001b[${code}m${value}\u001b[0m` : value;
 }
 
-function quoteLogValue(value) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value);
-  }
-  if (typeof value === "boolean") {
-    return String(value);
-  }
-  return `"${String(value).replace(/[\\\n\r"]/gu, (match) => {
-    if (match === "\\") {
-      return "\\\\";
-    }
-    if (match === "\n") {
-      return "\\n";
-    }
-    if (match === "\r") {
-      return "\\r";
-    }
-    return '\\"';
-  })}"`;
-}
-
 function formatLocalDate(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -330,29 +309,20 @@ function resolvePolytroposCliLogPath(env = process.env) {
 }
 
 async function writePolytroposProbeLog(message, fields = {}, env = process.env) {
-  const loggingRuntime = await loadCoreLoggingRuntime();
-  if (
-    typeof loggingRuntime?.getLogger === "function" &&
-    typeof loggingRuntime?.setLoggerOverride === "function"
-  ) {
-    const override = env[LOG_PATH_ENV]?.trim();
-    if (override) {
-      loggingRuntime.setLoggerOverride({
-        level: "info",
-        consoleLevel: "silent",
-        file: resolveUserPath(override, env),
-      });
-    }
-    loggingRuntime.getLogger().info(fields, message);
+  const logRecordBuilder = await loadCoreFileLogRecordBuilder();
+  if (typeof logRecordBuilder?.buildOpenClawInfoFileLogRecord !== "function") {
     return;
   }
-
   const logPath = resolvePolytroposCliLogPath(env);
-  const suffix = Object.entries(fields)
-    .filter(([, value]) => value !== undefined && value !== null && value !== "")
-    .map(([key, value]) => `${key}=${quoteLogValue(value)}`)
-    .join(" ");
-  const line = `${new Date().toISOString()} info polytropos cli: ${message}${suffix ? ` ${suffix}` : ""}\n`;
+  const date = new Date();
+  const hostname = os.hostname();
+  const record = logRecordBuilder.buildOpenClawInfoFileLogRecord({
+    message,
+    fields,
+    date,
+    hostname,
+  });
+  const line = `${JSON.stringify(record)}\n`;
   try {
     fsSync.mkdirSync(path.dirname(logPath), { recursive: true });
     fsSync.appendFileSync(logPath, line, "utf8");
