@@ -368,6 +368,14 @@ describe("polytropos launcher claims", () => {
     ).toEqual([path.join("/tmp/openclaw-state", "extensions")]);
   });
 
+  it("keeps relay probe logging on the local compatibility path", async () => {
+    const source = await fs.readFile(path.resolve(process.cwd(), "polytropos.mjs"), "utf8");
+
+    expect(source).not.toContain("loadCoreLoggingRuntime");
+    expect(source).not.toContain("./dist/plugin-sdk/runtime.js");
+    expect(source).not.toContain("./src/logging.ts");
+  });
+
   it.runIf(process.platform !== "win32")(
     "runs when invoked through an npm-style symlink",
     async () => {
@@ -633,18 +641,57 @@ describe("polytropos launcher claims", () => {
       expect.arrayContaining([
         expect.objectContaining({
           message: "claimed hooks relay probe",
-          time: expect.any(String),
+          time: expect.stringMatching(
+            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/u,
+          ),
           hostname: expect.any(String),
-          _meta: expect.objectContaining({ logLevelName: "INFO" }),
+          _meta: expect.objectContaining({ logLevelName: "INFO", hostname: expect.any(String) }),
           "0": expect.objectContaining({
             command: "openclaw hooks relay --help",
             plugin: "polytropos-cli",
             exitCode: 0,
           }),
+          "1": "claimed hooks relay probe",
         }),
       ]),
     );
     expect(stderr).not.toContain("[polytropos cli]");
+  });
+
+  it("redacts sensitive values from claimed relay probe log records", async () => {
+    const extensionsRoot = await writePluginFixture();
+    const previousRoots = process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+    const logPath = path.join(makeTempDir(fixtureRoots, "polytropos-gateway-log-"), "gateway.log");
+    const originalStdoutWrite = process.stdout.write;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+    process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = extensionsRoot;
+    process.env.OPENCLAW_POLYTROPOS_CLI_LOG_PATH = logPath;
+    try {
+      await launcher.runPolytroposLauncher([
+        "/usr/bin/node",
+        "/opt/openclaw/polytropos.mjs",
+        "hooks",
+        "relay",
+        "--token",
+        "sk-1234567890abcdef",
+        "--help",
+      ]);
+    } finally {
+      process.stdout.write = originalStdoutWrite;
+      if (previousRoots === undefined) {
+        delete process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS;
+      } else {
+        process.env.OPENCLAW_POLYTROPOS_CLI_PLUGIN_ROOTS = previousRoots;
+      }
+    }
+
+    const logText = await fs.readFile(logPath, "utf8");
+    expect(logText).not.toContain("sk-1234567890abcdef");
+    expect(logText).toContain("--token ***");
+    const record = JSON.parse(logText.trim()) as Record<string, Record<string, unknown>>;
+    expect(record["0"]).toMatchObject({
+      command: "openclaw hooks relay --token *** --help",
+    });
   });
 
   it("records claimed relay validation fallback in gateway-visible logs", async () => {
@@ -683,12 +730,13 @@ describe("polytropos launcher claims", () => {
           message: "claimed hooks relay probe",
           time: expect.any(String),
           hostname: expect.any(String),
-          _meta: expect.objectContaining({ logLevelName: "INFO" }),
+          _meta: expect.objectContaining({ logLevelName: "INFO", hostname: expect.any(String) }),
           "0": expect.objectContaining({
             command: "openclaw hooks relay",
             plugin: "polytropos-cli",
             exitCode: 1,
           }),
+          "1": "claimed hooks relay probe",
         }),
       ]),
     );
