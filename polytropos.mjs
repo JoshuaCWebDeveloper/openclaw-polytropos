@@ -72,7 +72,6 @@ function isHelpArg(value) {
 }
 
 let coreCliRuntimePromise;
-let coreFileLogRecordBuilderPromise;
 
 async function importFirstAvailableModule(specifiers) {
   for (const specifier of specifiers) {
@@ -92,14 +91,6 @@ async function loadCoreCliRuntime() {
     new URL("./packages/terminal-core/dist/theme.mjs", import.meta.url).href,
   ]);
   return await coreCliRuntimePromise;
-}
-
-async function loadCoreFileLogRecordBuilder() {
-  coreFileLogRecordBuilderPromise ??= importFirstAvailableModule([
-    new URL("./dist/logging/file-log-record.js", import.meta.url).href,
-    new URL("./src/logging/file-log-record.ts", import.meta.url).href,
-  ]);
-  return await coreFileLogRecordBuilderPromise;
 }
 
 async function formatCommandHelp(command, commandPath) {
@@ -308,21 +299,136 @@ function resolvePolytroposCliLogPath(env = process.env) {
   return readConfiguredLogFile(env) ?? resolveDefaultOpenClawLogFile();
 }
 
-async function writePolytroposProbeLog(message, fields = {}, env = process.env) {
-  const logRecordBuilder = await loadCoreFileLogRecordBuilder();
-  if (typeof logRecordBuilder?.buildOpenClawInfoFileLogRecord !== "function") {
-    return;
+function formatLogTimestamp(date) {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: process.env.TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    fractionalSecondDigits: 3,
+    timeZoneName: "longOffset",
+  }).formatToParts(date);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const offset = byType.timeZoneName === "GMT" ? "+00:00" : byType.timeZoneName?.slice(3);
+  return `${byType.year}-${byType.month}-${byType.day}T${byType.hour}:${byType.minute}:${byType.second}.${byType.fractionalSecond}${offset ?? "+00:00"}`;
+}
+
+function maskPolytroposLogToken(token) {
+  if (token.length < 18) {
+    return "***";
   }
-  const logPath = resolvePolytroposCliLogPath(env);
-  const date = new Date();
-  const hostname = os.hostname();
-  const record = logRecordBuilder.buildOpenClawInfoFileLogRecord({
-    message,
-    fields,
-    date,
+  return `${token.slice(0, 6)}…${token.slice(-4)}`;
+}
+
+function redactPolytroposLogText(value) {
+  let redacted = value.replace(
+    /(--(?:api[-_]?key|hook[-_]?token|token|secret|password|passwd)\s+)(["']?)([^\s"']+)\2/giu,
+    (_match, prefix, quote) => `${prefix}${quote}***${quote}`,
+  );
+  const patterns = [
+    /\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)\b\s*[=:]\s*(["']?)([^\s"'\\]+)\1/gu,
+    /([?&](?:access[-_]?token|auth[-_]?token|hook[-_]?token|refresh[-_]?token|api[-_]?key|client[-_]?secret|token|key|secret|password|pass|passwd|auth|signature)=)([^&\s"'<>]+)/giu,
+    /(Authorization\s*[:=]\s*Bearer\s+)([A-Za-z0-9._\-+=]+)/giu,
+    /\b(sk-[A-Za-z0-9_-]{8,})\b/gu,
+    /(ghp_[A-Za-z0-9]{20,})/gu,
+    /(github_pat_[A-Za-z0-9_]{20,})/gu,
+    /(xox[baprs]-[A-Za-z0-9-]{10,})/gu,
+    /(xapp-[A-Za-z0-9-]{10,})/gu,
+    /(gsk_[A-Za-z0-9_-]{10,})/gu,
+    /(AIza[0-9A-Za-z\-_]{20,})/gu,
+    /(ya29\.[0-9A-Za-z_\-./+=]{10,})/gu,
+    /(1\/\/0[0-9A-Za-z_\-./+=]{10,})/gu,
+    /(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})/gu,
+    /(pplx-[A-Za-z0-9_-]{10,})/gu,
+    /(npm_[A-Za-z0-9]{10,})/gu,
+  ];
+  for (const pattern of patterns) {
+    redacted = redacted.replace(pattern, (...args) => {
+      const match = args[0];
+      const groups = args.slice(1, -2).filter((group) => typeof group === "string");
+      const token = groups.findLast((group) => group.length > 0) ?? match;
+      return match.replace(token, maskPolytroposLogToken(token));
+    });
+  }
+  return redacted;
+}
+
+function isPolytroposSensitiveField(key) {
+  return /^(?:api[-_]?key|apiKey|token|secret|password|passwd|access[-_]?token|accessToken|refresh[-_]?token|refreshToken|id[-_]?token|idToken|auth[-_]?token|authToken|client[-_]?secret|clientSecret|app[-_]?secret|appSecret)$/iu.test(
+    key,
+  );
+}
+
+function redactPolytroposLogValue(key, value, seen = new WeakSet()) {
+  if (typeof value === "string") {
+    return isPolytroposSensitiveField(key)
+      ? maskPolytroposLogToken(value)
+      : redactPolytroposLogText(value);
+  }
+  if (value === null || value === undefined) {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (seen.has(value)) {
+      return "[Circular]";
+    }
+    seen.add(value);
+    const redacted = value.map((entry) => redactPolytroposLogValue(key, entry, seen));
+    seen.delete(value);
+    return redacted;
+  }
+  if (typeof value === "object") {
+    if (seen.has(value)) {
+      return "[Circular]";
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return value;
+    }
+    seen.add(value);
+    const redacted = {};
+    for (const [nestedKey, nestedValue] of Object.entries(value)) {
+      redacted[nestedKey] = redactPolytroposLogValue(nestedKey, nestedValue, seen);
+    }
+    seen.delete(value);
+    return redacted;
+  }
+  return value;
+}
+
+function createPolytroposProbeLogRecord(message, fields) {
+  const now = new Date();
+  const hostname = os.hostname().trim() || "unknown";
+  const redactedFields = redactPolytroposLogValue("", fields);
+  const redactedMessage = redactPolytroposLogText(message);
+  return {
+    0: redactedFields,
+    1: redactedMessage,
+    _meta: {
+      runtime: "node",
+      runtimeVersion: process.versions.node,
+      hostname,
+      name: "openclaw",
+      date: now,
+      logLevelId: 3,
+      logLevelName: "INFO",
+    },
+    time: formatLogTimestamp(now),
     hostname,
-  });
-  const line = `${JSON.stringify(record)}\n`;
+    message: redactedMessage,
+  };
+}
+
+async function writePolytroposProbeLog(message, fields = {}, env = process.env) {
+  const logPath = resolvePolytroposCliLogPath(env);
+  const line = `${JSON.stringify(createPolytroposProbeLogRecord(message, fields))}\n`;
   try {
     fsSync.mkdirSync(path.dirname(logPath), { recursive: true });
     fsSync.appendFileSync(logPath, line, "utf8");
