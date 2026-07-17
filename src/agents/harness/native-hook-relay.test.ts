@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
@@ -3187,6 +3187,36 @@ describe("native hook relay registry", () => {
 });
 
 describe("native hook relay command builder", () => {
+  it("rewrites stale core dist CLI paths to the launcher entrypoint", () => {
+    const packageRoot = path.join(tmpdir(), `openclaw-native-relay-cli-${randomUUID()}`);
+    const previousCliPath = process.env.OPENCLAW_CLI_PATH;
+    try {
+      mkdirSync(path.join(packageRoot, "dist"), { recursive: true });
+      writeFileSync(path.join(packageRoot, "package.json"), '{"name":"openclaw"}\n');
+      writeFileSync(path.join(packageRoot, "dist", "index.js"), "export {};\n");
+      writeFileSync(path.join(packageRoot, "polytropos.mjs"), "import './dist/entry.js';\n");
+      process.env.OPENCLAW_CLI_PATH = path.join(packageRoot, "dist", "index.js");
+
+      const command = buildNativeHookRelayCommand({
+        provider: "codex",
+        relayId: "relay-1",
+        event: "permission_request",
+        nodeExecutable: "/usr/bin/node",
+      });
+
+      expect(command).toContain("/usr/bin/node");
+      expect(command).toContain("polytropos.mjs hooks relay");
+      expect(command).not.toContain("dist/index.js hooks relay");
+    } finally {
+      if (previousCliPath === undefined) {
+        delete process.env.OPENCLAW_CLI_PATH;
+      } else {
+        process.env.OPENCLAW_CLI_PATH = previousCliPath;
+      }
+      rmSync(packageRoot, { recursive: true, force: true });
+    }
+  });
+
   it("uses the forked CLI entrypoint by default", () => {
     const previousCliPath = process.env.OPENCLAW_CLI_PATH;
     delete process.env.OPENCLAW_CLI_PATH;
