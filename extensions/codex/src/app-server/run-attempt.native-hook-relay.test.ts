@@ -49,8 +49,6 @@ describe("runCodexAppServerAttempt native hook relay", () => {
     const preToolUseCommand = preToolUseHooks?.[0]?.hooks?.[0];
     expect(preToolUseCommand?.type).toBe("command");
     expect(preToolUseCommand?.timeout).toBe(9);
-    expect(preToolUseCommand?.command).toContain("polytropos.mjs hooks relay");
-    expect(preToolUseCommand?.command).not.toContain("dist/index.js hooks relay");
     expect(preToolUseCommand?.command).toContain("--event pre_tool_use --timeout 4321");
     const hookState = startConfig?.["hooks.state"] as Record<
       string,

@@ -210,7 +210,6 @@ const NATIVE_HOOK_RELAY_BRIDGE_STALE_REGISTRATION_ERROR =
   "native hook relay bridge stale registration";
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 const log = createSubsystemLogger("agents/harness/native-hook-relay");
-const CORE_DIST_CLI_ENTRY_PATHS = new Set(["dist/index.js", "dist/entry.js"]);
 
 function resolveNativeHookRelayExpiresAtMs(ttlMs: number | undefined): number | undefined {
   return resolveExpiresAtMsFromDurationMs(normalizePositiveInteger(ttlMs, DEFAULT_RELAY_TTL_MS));
@@ -2112,7 +2111,7 @@ function truncateText(value: string, maxLength: number): string {
 function resolveOpenClawCliExecutable(): string {
   const envPath = process.env.OPENCLAW_CLI_PATH?.trim();
   if (envPath && existsSync(envPath)) {
-    return resolveOpenClawLauncherForCliPath(envPath) ?? envPath;
+    return envPath;
   }
   const packageRoot = resolveOpenClawPackageRootSync({
     moduleUrl: import.meta.url,
@@ -2120,9 +2119,15 @@ function resolveOpenClawCliExecutable(): string {
     cwd: process.cwd(),
   });
   if (packageRoot) {
-    const launcher = resolveOpenClawLauncherFromPackageRoot(packageRoot);
-    if (launcher) {
-      return launcher;
+    for (const candidate of [
+      path.join(packageRoot, "polytropos.mjs"),
+      path.join(packageRoot, "openclaw.mjs"),
+      path.join(packageRoot, "dist", "entry.js"),
+      path.join(packageRoot, "scripts", "run-node.mjs"),
+    ]) {
+      if (existsSync(candidate)) {
+        return candidate;
+      }
     }
   }
   const argvEntry = process.argv[1];
@@ -2133,36 +2138,6 @@ function resolveOpenClawCliExecutable(): string {
     }
   }
   throw new Error("Cannot resolve OpenClaw CLI executable path for native hook relay");
-}
-
-function resolveOpenClawLauncherForCliPath(cliPath: string): string | undefined {
-  const packageRoot = resolveOpenClawPackageRootSync({
-    argv1: cliPath,
-    cwd: path.dirname(cliPath),
-  });
-  if (!packageRoot || !isCoreDistCliEntrypoint(cliPath, packageRoot)) {
-    return undefined;
-  }
-  return resolveOpenClawLauncherFromPackageRoot(packageRoot);
-}
-
-function resolveOpenClawLauncherFromPackageRoot(packageRoot: string): string | undefined {
-  for (const candidate of [
-    path.join(packageRoot, "polytropos.mjs"),
-    path.join(packageRoot, "openclaw.mjs"),
-    path.join(packageRoot, "dist", "entry.js"),
-    path.join(packageRoot, "scripts", "run-node.mjs"),
-  ]) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  return undefined;
-}
-
-function isCoreDistCliEntrypoint(cliPath: string, packageRoot: string): boolean {
-  const relativePath = path.relative(packageRoot, path.resolve(cliPath)).split(path.sep).join("/");
-  return CORE_DIST_CLI_ENTRY_PATHS.has(relativePath);
 }
 
 function normalizeAllowedEvents(
