@@ -5,6 +5,9 @@ export function buildPostInstallPluginSyncCommand(params) {
     path.join(params.repoRoot, "scripts", "polytropos-release-plugin-sync.ts"),
     path.resolve(params.installedRoot),
   ];
+  if (params.inventoryPath) {
+    args.push("--inventory-path", path.resolve(params.inventoryPath));
+  }
   if (params.headRef) {
     args.push("--head-ref", params.headRef);
   }

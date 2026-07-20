@@ -480,6 +480,30 @@ describe("buildOpenAIProvider", () => {
     });
   });
 
+  it("resolves gpt-5.6-sol locally without cached catalog metadata", () => {
+    const provider = buildOpenAIProvider();
+
+    const model = provider.resolveDynamicModel?.({
+      provider: "openai",
+      modelId: "gpt-5.6-sol",
+      modelRegistry: { find: () => null },
+    } as never);
+
+    expectFields(model, {
+      provider: "openai",
+      id: "gpt-5.6-sol",
+      api: "openai-responses",
+      baseUrl: "https://api.openai.com/v1",
+      contextWindow: 1_050_000,
+      contextTokens: 272_000,
+      maxTokens: 128_000,
+      mediaInput: {
+        image: { maxSidePx: 6000, preferredSidePx: 2048, tokenMode: "detail" },
+      },
+      cost: { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25 },
+    });
+  });
+
   it("resolves gpt-5.5-pro locally", () => {
     const provider = buildOpenAIProvider();
 
@@ -590,6 +614,12 @@ describe("buildOpenAIProvider", () => {
       provider.isModernModelRef?.({
         provider: "openai",
         modelId: "gpt-5.5",
+      } as never),
+    ).toBe(true);
+    expect(
+      provider.isModernModelRef?.({
+        provider: "openai",
+        modelId: "gpt-5.6-sol",
       } as never),
     ).toBe(true);
 

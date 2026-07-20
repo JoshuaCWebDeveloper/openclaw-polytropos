@@ -32,12 +32,14 @@ import { resolveUnifiedOpenAIThinkingProfile } from "./thinking-policy.js";
 
 const PROVIDER_ID = "openai";
 const OPENAI_CHAT_LATEST_MODEL_ID = "chat-latest";
+const OPENAI_GPT_56_SOL_MODEL_ID = "gpt-5.6-sol";
 const OPENAI_GPT_55_MODEL_ID = "gpt-5.5";
 const OPENAI_GPT_55_PRO_MODEL_ID = "gpt-5.5-pro";
 const OPENAI_GPT_54_MODEL_ID = "gpt-5.4";
 const OPENAI_GPT_54_PRO_MODEL_ID = "gpt-5.4-pro";
 const OPENAI_GPT_54_MINI_MODEL_ID = "gpt-5.4-mini";
 const OPENAI_GPT_54_NANO_MODEL_ID = "gpt-5.4-nano";
+const OPENAI_GPT_56_SOL_CONTEXT_WINDOW = 1_050_000;
 const OPENAI_GPT_55_CONTEXT_WINDOW = 1_000_000;
 const OPENAI_GPT_55_CONTEXT_TOKENS = 272_000;
 const OPENAI_GPT_55_PRO_CONTEXT_TOKENS = 1_000_000;
@@ -47,6 +49,12 @@ const OPENAI_GPT_54_MINI_CONTEXT_TOKENS = 400_000;
 const OPENAI_GPT_54_NANO_CONTEXT_TOKENS = 400_000;
 const OPENAI_GPT_54_MAX_TOKENS = 128_000;
 const OPENAI_CHAT_LATEST_COST = { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 } as const;
+const OPENAI_GPT_56_SOL_COST = {
+  input: 5,
+  output: 30,
+  cacheRead: 0.5,
+  cacheWrite: 6.25,
+} as const;
 const OPENAI_GPT_55_COST = { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 } as const;
 const OPENAI_GPT_55_PRO_COST = { input: 30, output: 180, cacheRead: 0, cacheWrite: 0 } as const;
 const OPENAI_GPT_54_COST = { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0 } as const;
@@ -67,6 +75,11 @@ const OPENAI_GPT_55_PRO_TEMPLATE_MODEL_IDS = [
   OPENAI_GPT_54_PRO_MODEL_ID,
   OPENAI_GPT_54_MODEL_ID,
 ] as const;
+const OPENAI_GPT_56_SOL_TEMPLATE_MODEL_IDS = [
+  OPENAI_GPT_56_SOL_MODEL_ID,
+  OPENAI_GPT_55_MODEL_ID,
+  OPENAI_GPT_54_MODEL_ID,
+] as const;
 const OPENAI_GPT_55_MEDIA_INPUT = {
   image: { maxSidePx: 6000, preferredSidePx: 2048, tokenMode: "detail" },
 } as const satisfies ProviderRuntimeModel["mediaInput"];
@@ -80,6 +93,7 @@ const OPENAI_CHAT_LATEST_TEMPLATE_MODEL_IDS = [
 ] as const;
 const OPENAI_MODERN_MODEL_IDS = [
   OPENAI_CHAT_LATEST_MODEL_ID,
+  OPENAI_GPT_56_SOL_MODEL_ID,
   OPENAI_GPT_55_MODEL_ID,
   OPENAI_GPT_55_PRO_MODEL_ID,
   OPENAI_GPT_54_MODEL_ID,
@@ -212,6 +226,20 @@ function resolveOpenAIGptForwardCompatModel(ctx: ProviderResolveDynamicModelCont
       input: ["text", "image"],
       cost: OPENAI_CHAT_LATEST_COST,
       contextWindow: 400_000,
+      maxTokens: OPENAI_GPT_54_MAX_TOKENS,
+    };
+  } else if (lower === OPENAI_GPT_56_SOL_MODEL_ID) {
+    templateIds = OPENAI_GPT_56_SOL_TEMPLATE_MODEL_IDS;
+    patch = {
+      api: "openai-responses",
+      provider: PROVIDER_ID,
+      baseUrl: resolveOpenAIDefaultBaseUrl(),
+      reasoning: true,
+      input: ["text", "image"],
+      mediaInput: OPENAI_GPT_55_MEDIA_INPUT,
+      cost: OPENAI_GPT_56_SOL_COST,
+      contextWindow: OPENAI_GPT_56_SOL_CONTEXT_WINDOW,
+      contextTokens: OPENAI_GPT_55_CONTEXT_TOKENS,
       maxTokens: OPENAI_GPT_54_MAX_TOKENS,
     };
   } else if (lower === OPENAI_GPT_55_MODEL_ID) {
