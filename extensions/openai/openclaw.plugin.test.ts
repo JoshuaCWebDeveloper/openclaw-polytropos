@@ -30,6 +30,25 @@ const manifest = JSON.parse(
     providers?: Array<{ id: string }>;
   };
   providerEndpoints?: Array<{ endpointClass?: string; hosts?: string[] }>;
+  modelCatalog?: {
+    providers?: Record<
+      string,
+      {
+        baseUrl?: string;
+        api?: string;
+        models?: Array<{
+          id?: string;
+          name?: string;
+          reasoning?: boolean;
+          input?: string[];
+          contextWindow?: number;
+          contextTokens?: number;
+          maxTokens?: number;
+          cost?: Record<string, number>;
+        }>;
+      }
+    >;
+  };
   providerAuthAliases?: Record<string, string>;
   legacyPluginIds?: string[];
 };
@@ -116,6 +135,27 @@ describe("OpenAI plugin manifest", () => {
       endpoint.hosts?.includes("chatgpt.com"),
     );
     expect(chatGptEndpoint?.endpointClass).toBe("openai");
+  });
+
+  it("catalogs GPT-5.6 Sol for OpenAI and Codex transports", () => {
+    const openAiCatalog = manifest.modelCatalog?.providers?.openai;
+    const model = openAiCatalog?.models?.find((entry) => entry.id === "gpt-5.6-sol");
+
+    expect(openAiCatalog?.api).toBe("openai-responses");
+    expect(openAiCatalog?.baseUrl).toBe("https://api.openai.com/v1");
+    expect(model).toEqual({
+      id: "gpt-5.6-sol",
+      name: "GPT-5.6 Sol",
+      reasoning: true,
+      input: ["text", "image"],
+      mediaInput: {
+        image: { maxSidePx: 6000, preferredSidePx: 2048, tokenMode: "detail" },
+      },
+      contextWindow: 1_050_000,
+      contextTokens: 272_000,
+      maxTokens: 128_000,
+      cost: { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25 },
+    });
   });
 
   it("keeps OpenAI media-understanding manifest metadata aligned with runtime audio support", () => {
