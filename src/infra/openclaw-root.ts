@@ -7,22 +7,6 @@ const packageNameCache = new Map<string, string | null>();
 const packageRootCache = new Map<string, string | null>();
 const argv1CandidateCache = new Map<string, string[]>();
 
-export type OpenClawPackageRootCheck = {
-  candidate: string;
-  packageJsonPath: string;
-  exists: boolean;
-  packageName?: string;
-  accepted: boolean;
-  reason: string;
-};
-
-type OpenClawPackageRootOptions = {
-  cwd?: string;
-  argv1?: string;
-  moduleUrl?: string;
-  onCheck?: (check: OpenClawPackageRootCheck) => void;
-};
-
 function parsePackageName(raw: string): string | null {
   const parsed = JSON.parse(raw) as { name?: unknown };
   return typeof parsed.name === "string" ? parsed.name : null;
@@ -78,57 +62,6 @@ function findPackageRootSync(startDir: string, maxDepth = 12): string | null {
   return null;
 }
 
-function findPackageRootSyncWithDiagnostics(
-  startDir: string,
-  onCheck: (check: OpenClawPackageRootCheck) => void,
-  maxDepth = 12,
-): string | null {
-  const candidate = path.resolve(startDir);
-  for (const current of iterAncestorDirs(candidate, maxDepth)) {
-    const packageJsonPath = path.join(current, "package.json");
-    if (!openClawRootFsSync.existsSync(packageJsonPath)) {
-      onCheck({
-        candidate,
-        packageJsonPath,
-        exists: false,
-        accepted: false,
-        reason: "package.json does not exist",
-      });
-      continue;
-    }
-    try {
-      const packageName = parsePackageName(
-        openClawRootFsSync.readFileSync(packageJsonPath, "utf-8"),
-      );
-      const accepted = packageName !== null && CORE_PACKAGE_NAMES.has(packageName);
-      onCheck({
-        candidate,
-        packageJsonPath,
-        exists: true,
-        ...(packageName ? { packageName } : {}),
-        accepted,
-        reason: accepted
-          ? "package name is an accepted OpenClaw core package name"
-          : packageName
-            ? "package name is not an accepted OpenClaw core package name"
-            : "package.json has no string name",
-      });
-      if (accepted) {
-        return current;
-      }
-    } catch {
-      onCheck({
-        candidate,
-        packageJsonPath,
-        exists: true,
-        accepted: false,
-        reason: "package.json could not be read or parsed",
-      });
-    }
-  }
-  return null;
-}
-
 function* iterAncestorDirs(startDir: string, maxDepth: number): Generator<string> {
   let current = path.resolve(startDir);
   for (let i = 0; i < maxDepth; i += 1) {
@@ -173,9 +106,11 @@ function candidateDirsFromArgv1(argv1: string): string[] {
   return [...deduped];
 }
 
-export async function resolveOpenClawPackageRoot(
-  opts: OpenClawPackageRootOptions,
-): Promise<string | null> {
+export async function resolveOpenClawPackageRoot(opts: {
+  cwd?: string;
+  argv1?: string;
+  moduleUrl?: string;
+}): Promise<string | null> {
   const candidates = buildCandidates(opts);
   const cacheKey = createPackageRootCacheKey(candidates);
   if (packageRootCache.has(cacheKey)) {
@@ -193,17 +128,12 @@ export async function resolveOpenClawPackageRoot(
   return null;
 }
 
-export function resolveOpenClawPackageRootSync(opts: OpenClawPackageRootOptions): string | null {
+export function resolveOpenClawPackageRootSync(opts: {
+  cwd?: string;
+  argv1?: string;
+  moduleUrl?: string;
+}): string | null {
   const candidates = buildCandidates(opts);
-  if (opts.onCheck) {
-    for (const candidate of candidates) {
-      const found = findPackageRootSyncWithDiagnostics(candidate, opts.onCheck);
-      if (found) {
-        return found;
-      }
-    }
-    return null;
-  }
   const cacheKey = createPackageRootCacheKey(candidates);
   if (packageRootCache.has(cacheKey)) {
     return packageRootCache.get(cacheKey) ?? null;
@@ -220,7 +150,7 @@ export function resolveOpenClawPackageRootSync(opts: OpenClawPackageRootOptions)
   return null;
 }
 
-function buildCandidates(opts: OpenClawPackageRootOptions): string[] {
+function buildCandidates(opts: { cwd?: string; argv1?: string; moduleUrl?: string }): string[] {
   const candidates: string[] = [];
 
   if (opts.moduleUrl) {
