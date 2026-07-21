@@ -252,6 +252,8 @@ function buildCoreDistEntries(): Record<string, string> {
     entry: "src/entry.ts",
     // Ensure this module is bundled as an entry so legacy CLI shims can resolve its exports.
     "cli/daemon-cli": "src/cli/daemon-cli.ts",
+    // Polytropos loads this path directly so relay subprocesses skip normal CLI/plugin bootstrap.
+    "cli/native-hook-relay-cli": "src/cli/native-hook-relay-cli.ts",
     // Keep long-lived lazy runtime boundaries on stable filenames so rebuilt
     // dist/ trees do not strand already-running gateways on stale hashed chunks.
     "agents/auth-profiles.runtime": "src/agents/auth-profiles.runtime.ts",
@@ -266,6 +268,8 @@ function buildCoreDistEntries(): Record<string, string> {
     "server-close.runtime": "src/gateway/server-close.runtime.ts",
     "plugins/hook-runner-global": "src/plugins/hook-runner-global.ts",
     "plugins/memory-state": "src/plugins/memory-state.ts",
+    // Polytropos reuses cold core discovery without importing the plugin runtime loader.
+    "plugins/discovery": "src/plugins/discovery.ts",
     "plugins/synthetic-auth.runtime": "src/plugins/synthetic-auth.runtime.ts",
     "subagent-registry.runtime": "src/agents/subagent-registry.runtime.ts",
     "task-registry-control.runtime": "src/tasks/task-registry-control.runtime.ts",

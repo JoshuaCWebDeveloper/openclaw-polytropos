@@ -170,6 +170,22 @@ describe("resolveOpenClawPackageRoot", () => {
       },
     },
     {
+      name: "accepts the installed scoped Polytropos core package",
+      setup: () => {
+        const pkgRoot = fx(
+          "scoped-package",
+          "node_modules",
+          "@joshuacwebdeveloper",
+          "openclaw-polytropos-core",
+        );
+        setPackageRoot(pkgRoot, "@joshuacwebdeveloper/openclaw-polytropos-core");
+        return {
+          opts: { moduleUrl: pathToFileURL(path.join(pkgRoot, "dist", "index.js")).toString() },
+          expected: pkgRoot,
+        };
+      },
+    },
+    {
       name: "falls through from a non-openclaw moduleUrl candidate to cwd",
       setup: () => {
         const wrongPkgRoot = fx("moduleurl-fallthrough", "wrong");

@@ -3187,6 +3187,27 @@ describe("native hook relay registry", () => {
 });
 
 describe("native hook relay command builder", () => {
+  it("uses the forked CLI entrypoint by default", () => {
+    const previousCliPath = process.env.OPENCLAW_CLI_PATH;
+    delete process.env.OPENCLAW_CLI_PATH;
+    try {
+      const command = buildNativeHookRelayCommand({
+        provider: "codex",
+        relayId: "relay-1",
+        event: "permission_request",
+        nodeExecutable: "/usr/local/bin/node",
+      });
+      expect(command).toContain("/usr/local/bin/node");
+      expect(command).toContain("polytropos.mjs hooks relay");
+    } finally {
+      if (previousCliPath === undefined) {
+        delete process.env.OPENCLAW_CLI_PATH;
+      } else {
+        process.env.OPENCLAW_CLI_PATH = previousCliPath;
+      }
+    }
+  });
+
   it("uses the Codex hook relay command shape", () => {
     expect(
       buildNativeHookRelayCommand({
